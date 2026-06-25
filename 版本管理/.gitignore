@@ -1,0 +1,10 @@
+# AVM 临时文件
+*.tmp
+*.lock
+__pycache__/
+
+# 任务锁（本地）
+当前任务.json
+approvals.json
+approval-pending.json
+.avm-context.json
