@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "task_id": "f68a050d-dbc9-41fb-b49a-12e85044b059",
+  "status": "BRANCH_READY",
+  "previous_status": null,
+  "version": "v1",
+  "agent": "claude-code",
+  "branch": "agent/v1-claude-code",
+  "base_commit": "806affc21398c6029bba635149c18fa17fbafdf0",
+  "started_at": "2026-06-26T09:43:39.326490+00:00",
+  "expected_files": [],
+  "remote_lock_ref": "refs/heads/avm/system-lock",
+  "approval_id": "30112c4c-2426-4208-93a0-8cbb6c44f15e"
+}

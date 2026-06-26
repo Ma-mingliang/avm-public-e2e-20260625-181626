@@ -2,7 +2,13 @@
   "schema_version": 1,
   "project_name": "avm-e2e-test",
   "created_at": "2026-06-26T09:36:52.623592+00:00",
-  "formal_versions": [],
+  "formal_versions": [
+    {
+      "version": "v1",
+      "status": "reserved",
+      "reserved_at": null
+    }
+  ],
   "document_versions": [],
   "abandoned_versions": [],
   "pending_archives": []
