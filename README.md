@@ -332,3 +332,7 @@ avm status
 
 MIT License
 # E2E test
+
+## AVM Publish E2E Verification
+
+This line was added during the AVM publish E2E test on 2026-06-26.
