@@ -1,0 +1,7 @@
+# AVM 临时文件
+*.tmp
+*.lock
+__pycache__/
+
+# 任务锁（本地）
+任务锁.json
