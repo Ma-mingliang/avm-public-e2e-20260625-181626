@@ -21,8 +21,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from avm.adapters.claude_code import ClaudeCodeAdapter
-
 
 def _git(args: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
     """执行 git 命令"""
@@ -139,8 +137,8 @@ def _setup_repo(tmp_path: Path) -> tuple[Path, Path, _LocalGitHub]:
 
     # 初始化 bare remote
     _git(["init", "--bare"], cwd=bare)
-    # 初始化工作仓库
-    _git(["init"], cwd=work)
+    # 初始化工作仓库（显式指定默认分支为 main）
+    _git(["init", "-b", "main"], cwd=work)
     _git(["remote", "add", "origin", str(bare)], cwd=work)
     # 初始提交
     (work / "README.md").write_text("# test", encoding="utf-8")
@@ -162,7 +160,7 @@ class TestCompleteTransactionLifecycle:
         from avm.commands.init_project import run_init_project
         from avm.commands.start import run_start
         from avm.core.state_machine import StateMachine
-        from avm.models import TaskStatus, AgentType
+        from avm.models import AgentType, TaskStatus
 
         # 1. init
         init_result = run_init_project(work)
@@ -188,6 +186,7 @@ class TestCompleteTransactionLifecycle:
         work, bare, gh = _setup_repo(tmp_path)
 
         from avm.commands.init_project import run_init_project
+
         run_init_project(work)
 
         # 验证中文目录被创建
@@ -199,6 +198,7 @@ class TestCompleteTransactionLifecycle:
         work, bare, gh = _setup_repo(tmp_path)
 
         from avm.git.ops import GitOps
+
         git = GitOps(work)
 
         # 创建文件
@@ -238,7 +238,7 @@ class TestCompleteTransactionLifecycle:
         work, bare, gh = _setup_repo(tmp_path)
 
         from avm.core.state_machine import StateMachine
-        from avm.models import TaskStatus, TaskLock, AgentType
+        from avm.models import AgentType, TaskLock, TaskStatus
 
         sm = StateMachine(work)
         sm._task_lock = TaskLock(
@@ -308,6 +308,7 @@ class TestCompleteTransactionLifecycle:
         _git(["commit", "-m", "init"], cwd=work)
 
         from avm.git.ops import GitOps
+
         git = GitOps(work)
         assert git.is_repo() is True
         assert git.get_head_sha() != ""
@@ -317,6 +318,7 @@ class TestCompleteTransactionLifecycle:
         work, bare, gh = _setup_repo(tmp_path)
 
         from avm.git.versioning import VersionCalculator
+
         calc = VersionCalculator(work)
         ver = calc.get_next_version()
         assert ver >= 1

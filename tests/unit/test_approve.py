@@ -133,6 +133,7 @@ class TestRunApprove:
 
         from avm.core.state_machine import StateMachine
         from avm.models import TaskStatus
+
         sm = StateMachine(project_dir)
         sm.load()
         assert sm.current_status == TaskStatus.BRANCH_READY
@@ -147,6 +148,7 @@ class TestRunApprove:
 
         from avm.core.state_machine import StateMachine
         from avm.models import TaskStatus
+
         sm = StateMachine(project_dir)
         sm.load()
         assert sm.current_status == TaskStatus.PR_READY
