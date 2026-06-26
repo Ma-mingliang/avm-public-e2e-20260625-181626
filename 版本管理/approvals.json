@@ -1,1 +1,15 @@
-{}
+{
+  "1bdc5c35-9b68-4b53-bb17-12a00119a6e7": {
+    "approval_id": "7d3ff875-2218-424c-a298-98ac7ab1eaba",
+    "task_id": "1bdc5c35-9b68-4b53-bb17-12a00119a6e7",
+    "version": "v3",
+    "approval_type": "FINAL_RELEASE",
+    "approver": "lenovo_mml",
+    "signature": "b8836be98ac14870cd40a83325feafecbfbfebca4764152537d2184ceb22c19c",
+    "scope_files": [],
+    "notes": "",
+    "created_at": "2026-06-26T16:11:08.799504+00:00",
+    "expires_at": "2026-06-26T20:11:08.799504+00:00",
+    "content_hash": "dd99261d26e3789390c1050ee02033c7d2050783b25c9df2e92c63ebddf1ffec"
+  }
+}

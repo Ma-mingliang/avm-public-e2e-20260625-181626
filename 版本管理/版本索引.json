@@ -7,6 +7,11 @@
       "version": "v1",
       "status": "reserved",
       "reserved_at": null
+    },
+    {
+      "version": "v3",
+      "status": "reserved",
+      "reserved_at": null
     }
   ],
   "document_versions": [],

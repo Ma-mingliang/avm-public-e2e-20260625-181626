@@ -1,14 +1,19 @@
 {
   "schema_version": 1,
   "task_id": "1bdc5c35-9b68-4b53-bb17-12a00119a6e7",
-  "status": "IDLE",
+  "status": "PR_READY",
   "previous_status": null,
-  "version": "",
+  "version": "v3",
   "agent": "claude-code",
-  "branch": "",
-  "base_commit": "",
+  "branch": "agent/v3-claude-code",
+  "base_commit": "c28510580c3c8e596156aff6be9dc78951e160a7",
   "started_at": "2026-06-26T10:13:12.849757+00:00",
   "expected_files": [],
   "remote_lock_ref": "refs/heads/avm/system-lock",
-  "approval_id": null
+  "approval_id": "7d3ff875-2218-424c-a298-98ac7ab1eaba",
+  "merge_sha": "",
+  "manifest_hash": "",
+  "pr_number": null,
+  "release_url": "",
+  "published_at": ""
 }
