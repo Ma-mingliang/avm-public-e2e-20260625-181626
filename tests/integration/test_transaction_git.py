@@ -21,8 +21,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from avm.adapters.claude_code import ClaudeCodeAdapter
-
 
 def _git(args: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
     """执行 git 命令"""
@@ -162,7 +160,7 @@ class TestCompleteTransactionLifecycle:
         from avm.commands.init_project import run_init_project
         from avm.commands.start import run_start
         from avm.core.state_machine import StateMachine
-        from avm.models import TaskStatus, AgentType
+        from avm.models import AgentType, TaskStatus
 
         # 1. init
         init_result = run_init_project(work)
@@ -238,7 +236,7 @@ class TestCompleteTransactionLifecycle:
         work, bare, gh = _setup_repo(tmp_path)
 
         from avm.core.state_machine import StateMachine
-        from avm.models import TaskStatus, TaskLock, AgentType
+        from avm.models import AgentType, TaskLock, TaskStatus
 
         sm = StateMachine(work)
         sm._task_lock = TaskLock(
