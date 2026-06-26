@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "task_id": null,
+  "task_id": "1bdc5c35-9b68-4b53-bb17-12a00119a6e7",
   "status": "IDLE",
   "previous_status": null,
-  "version": null,
-  "agent": null,
-  "branch": null,
-  "base_commit": null,
-  "started_at": null,
+  "version": "",
+  "agent": "claude-code",
+  "branch": "",
+  "base_commit": "",
+  "started_at": "2026-06-26T10:13:12.849757+00:00",
   "expected_files": [],
-  "remote_lock_ref": null,
+  "remote_lock_ref": "refs/heads/avm/system-lock",
   "approval_id": null
 }
