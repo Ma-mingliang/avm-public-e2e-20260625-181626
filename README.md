@@ -336,3 +336,4 @@ MIT License
 ## AVM Publish E2E Verification
 
 This line was added during the AVM publish E2E test on 2026-06-26.
+# v3 changes
