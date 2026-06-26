@@ -186,6 +186,7 @@ class TestCompleteTransactionLifecycle:
         work, bare, gh = _setup_repo(tmp_path)
 
         from avm.commands.init_project import run_init_project
+
         run_init_project(work)
 
         # 验证中文目录被创建
@@ -197,6 +198,7 @@ class TestCompleteTransactionLifecycle:
         work, bare, gh = _setup_repo(tmp_path)
 
         from avm.git.ops import GitOps
+
         git = GitOps(work)
 
         # 创建文件
@@ -306,6 +308,7 @@ class TestCompleteTransactionLifecycle:
         _git(["commit", "-m", "init"], cwd=work)
 
         from avm.git.ops import GitOps
+
         git = GitOps(work)
         assert git.is_repo() is True
         assert git.get_head_sha() != ""
@@ -315,6 +318,7 @@ class TestCompleteTransactionLifecycle:
         work, bare, gh = _setup_repo(tmp_path)
 
         from avm.git.versioning import VersionCalculator
+
         calc = VersionCalculator(work)
         ver = calc.get_next_version()
         assert ver >= 1

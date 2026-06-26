@@ -162,9 +162,7 @@ class StateMachine:
                 from ..models import AgentType
 
                 agent_val = context["agent"]
-                self._task_lock.agent = (
-                    agent_val if isinstance(agent_val, AgentType) else AgentType(agent_val)
-                )
+                self._task_lock.agent = agent_val if isinstance(agent_val, AgentType) else AgentType(agent_val)
             if "expected_files" in context:
                 self._task_lock.expected_files = context["expected_files"]
             if "approval_id" in context:
