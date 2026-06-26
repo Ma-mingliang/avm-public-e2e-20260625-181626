@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# AVM
+logs/
+config-backups/
+snapshots/
+*.tmp
+**/approval-pending.json
+
+# AVM context (not for version control)
+版本管理/.avm-context.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+test_err.txt
+test_out.txt
+
+# 测试报告和设计文档（含环境信息，不推送到公开仓库）
+AVM_*复测报告*.md
+AVM_*测试报告*.md
+AVM_*验收报告*.md
+AVM_*执行稿*.md
+AVM_*测验报告*.md
+设计方案*.md
+后续方案*.md
