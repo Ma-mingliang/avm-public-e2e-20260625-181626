@@ -137,8 +137,8 @@ def _setup_repo(tmp_path: Path) -> tuple[Path, Path, _LocalGitHub]:
 
     # 初始化 bare remote
     _git(["init", "--bare"], cwd=bare)
-    # 初始化工作仓库
-    _git(["init"], cwd=work)
+    # 初始化工作仓库（显式指定默认分支为 main）
+    _git(["init", "-b", "main"], cwd=work)
     _git(["remote", "add", "origin", str(bare)], cwd=work)
     # 初始提交
     (work / "README.md").write_text("# test", encoding="utf-8")
