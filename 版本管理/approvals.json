@@ -1,15 +1,1 @@
-{
-  "f68a050d-dbc9-41fb-b49a-12e85044b059": {
-    "approval_id": "30112c4c-2426-4208-93a0-8cbb6c44f15e",
-    "task_id": "f68a050d-dbc9-41fb-b49a-12e85044b059",
-    "version": "v1",
-    "approval_type": "START",
-    "approver": "lenovo_mml",
-    "signature": "573e6b3b826f5b46cfdee2975f35edcaa3e2c4fc8cf38ac610b3decff638fdc7",
-    "scope_files": [],
-    "notes": "",
-    "created_at": "2026-06-26T09:43:53.795256+00:00",
-    "expires_at": "2026-06-26T13:43:53.795256+00:00",
-    "content_hash": "34252213c3caa900315fe1cf934929243c181e533edc6291a1ffe420279cbca5"
-  }
-}
+{}
