@@ -8,8 +8,7 @@ from typing import Any
 
 from ..exceptions import LockError
 from ..models import TaskLock, TaskStatus
-from .io import atomic_write_json, read_json
-from .paths import get_task_lock_path
+from .task_store import TaskStore
 
 
 class TaskLocker:
@@ -20,7 +19,8 @@ class TaskLocker:
 
     def __init__(self, project_root: Path):
         self.project_root = project_root
-        self.lock_path = get_task_lock_path(project_root)
+        self._store = TaskStore(project_root)
+        self.lock_path = self._store.path
 
     def get_lock(self) -> TaskLock | None:
         """获取当前任务锁
@@ -31,18 +31,10 @@ class TaskLocker:
         Raises:
             LockError: 如果锁文件存在但内容损坏
         """
-        if not self.lock_path.exists():
-            return None
-
         try:
-            data = read_json(self.lock_path)
+            return self._store.read()
         except Exception as e:
-            raise LockError(f"任务锁文件损坏（JSON 解析失败）: {e}") from e
-
-        try:
-            return TaskLock(**data)
-        except Exception as e:
-            raise LockError(f"任务锁数据格式错误: {e}") from e
+            raise LockError(f"任务锁文件损坏: {e}") from e
 
     def is_locked(self) -> bool:
         """检查是否有活动锁"""
@@ -65,19 +57,17 @@ class TaskLocker:
         Raises:
             LockError: 如果锁已被占用
         """
-        if self.is_locked():
+        try:
+            self._store.acquire(task_lock)
+            return True
+        except Exception as e:
             existing = self.get_lock()
             holder = existing.agent if existing else "unknown"
-            raise LockError(f"任务锁已被占用: {holder}", lock_holder=holder)
-
-        # 写入锁文件
-        atomic_write_json(self.lock_path, task_lock.model_dump())
-        return True
+            raise LockError(f"任务锁已被占用: {holder}", lock_holder=str(holder)) from e
 
     def release_lock(self) -> bool:
         """释放任务锁"""
-        if self.lock_path.exists():
-            self.lock_path.unlink()
+        self._store.delete()
         return True
 
     def update_lock(self, **kwargs) -> bool:
@@ -90,7 +80,7 @@ class TaskLocker:
             if hasattr(lock, key):
                 setattr(lock, key, value)
 
-        atomic_write_json(self.lock_path, lock.model_dump())
+        self._store.compare_and_write(lock, lock)
         return True
 
     def check_stale_lock(self, timeout_hours: int = 1) -> bool:

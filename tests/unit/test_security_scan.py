@@ -62,6 +62,34 @@ class TestSecurityScanner:
         assert result["has_critical"]
         assert ".env" in result["blocked_files"]
 
+    def test_scan_blobs_blocks_sensitive_filename(self, scanner):
+        result = scanner.scan_blobs([("config/.env", b"SAFE=value")])
+
+        assert result["has_critical"] is True
+        assert result["blocked_files"] == ["config/.env"]
+
+    def test_scan_blobs_reports_large_content(self, scanner):
+        result = scanner.scan_blobs([("large.bin", b"x" * 20)], max_file_size=10)
+
+        assert result["has_high"] is True
+        assert result["large_files"] == ["large.bin"]
+
+    def test_scan_blobs_scans_normal_content(self, scanner):
+        result = scanner.scan_blobs([("normal.txt", b"plain text")])
+
+        assert result["scanned"] == 1
+        assert result["findings"] == []
+
+    def test_invalid_custom_pattern_is_ignored(self):
+        config = ProjectConfig(
+            project=ProjectInfo(name="test", root="."),
+            risk={"sensitive_patterns": ["[invalid"]},
+        )
+
+        scanner = SecurityScanner(config)
+
+        assert len(scanner._patterns) == len(SecurityScanner()._patterns)
+
     def test_blocked_pem_file(self, scanner, tmp_path):
         """阻止 .pem 文件"""
         (tmp_path / "cert.pem").write_text("-----BEGIN CERTIFICATE-----")

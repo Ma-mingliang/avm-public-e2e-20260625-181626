@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
+from avm.core.hashing import compute_file_sha256
+from avm.core.io import atomic_write_json
 from avm.update.installer import Installer
 
 
@@ -76,15 +78,15 @@ class TestInstaller:
         assert not result["success"]
         assert any(s["status"] == "error" for s in result["steps"])
 
-    def test_rollback_with_backup(self, temp_install_dir):
-        """测试有备份回滚"""
+    def test_legacy_backup_does_not_claim_code_rollback(self, temp_install_dir):
+        """只有版本元数据的旧备份不得伪报代码回滚成功。"""
         installer = Installer(temp_install_dir)
         temp_install_dir.mkdir(parents=True)
         installer._save_version("1.0.0")
         installer._backup_current()
 
         result = installer.rollback()
-        assert result["success"]
+        assert result["success"] is False
 
     def test_get_current_version_corrupted(self, temp_install_dir):
         """测试损坏的版本文件"""
@@ -117,8 +119,8 @@ class TestInstaller:
         backup_path = installer._backup_current()
         assert (backup_path / "config" / "test.yaml").exists()
 
-    def test_rollback_restores_version(self, temp_install_dir):
-        """测试回滚恢复版本文件"""
+    def test_legacy_rollback_keeps_current_version(self, temp_install_dir):
+        """无制品时不得只改版本文件制造已回滚假象。"""
         installer = Installer(temp_install_dir)
         temp_install_dir.mkdir(parents=True)
         installer._save_version("1.0.0")
@@ -130,7 +132,8 @@ class TestInstaller:
 
         # 回滚
         result = installer.rollback()
-        assert result["success"]
+        assert result["success"] is False
+        assert installer.get_current_version() == "2.0.0"
 
     def test_list_backups_multiple(self, temp_install_dir):
         """测试多个备份"""
@@ -260,3 +263,36 @@ class TestInstaller:
         backup_path = installer._backup_current()
         assert backup_path.exists()
         assert not (backup_path / "version.json").exists()
+
+    def test_rollback_reinstalls_verified_wheel(self, temp_install_dir):
+        installer = Installer(temp_install_dir)
+        temp_install_dir.mkdir(parents=True)
+        installer._save_version("1.0.0")
+        backup = installer._backup_current()
+        artifact = backup / "agent_version_manager-1.0.0-py3-none-any.whl"
+        artifact.write_bytes(b"wheel")
+        atomic_write_json(
+            backup / "artifact.json",
+            {"version": "1.0.0", "artifact_path": str(artifact), "sha256": compute_file_sha256(artifact)},
+        )
+
+        with patch.object(installer, "_pip_install", create=True) as pip_install:
+            result = installer.rollback()
+
+        assert result["success"] is True
+        pip_install.assert_called_once_with(artifact)
+
+    def test_tampered_backup_wheel_blocks_rollback(self, temp_install_dir):
+        installer = Installer(temp_install_dir)
+        temp_install_dir.mkdir(parents=True)
+        installer._save_version("1.0.0")
+        backup = installer._backup_current()
+        artifact = backup / "agent_version_manager-1.0.0-py3-none-any.whl"
+        artifact.write_bytes(b"wheel")
+        atomic_write_json(
+            backup / "artifact.json",
+            {"version": "1.0.0", "artifact_path": str(artifact), "sha256": compute_file_sha256(artifact)},
+        )
+        artifact.write_bytes(b"tampered")
+
+        assert installer.rollback()["success"] is False

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from packaging.version import Version
 from rich.console import Console
 
 from .. import __version__
@@ -25,8 +26,16 @@ def run_update_check(json_output: bool = False) -> bool:
     installer = Installer()
     current = installer.get_current_version()
 
-    # 简单比较版本（实际应查询 PyPI）
-    has_update = current != __version__ and current != "not installed"
+    latest: str | None = None
+    status = "not_installed" if current == "not installed" else "known"
+    has_update: bool | None = False
+    if current != "not installed":
+        try:
+            latest = installer.get_latest_version()
+            has_update = Version(latest) > Version(current)
+        except Exception:
+            has_update = None
+            status = "unknown"
 
     if json_output:
         print(
@@ -34,7 +43,9 @@ def run_update_check(json_output: bool = False) -> bool:
                 {
                     "current_version": current,
                     "installed_version": __version__,
+                    "latest_version": latest,
                     "has_update": has_update,
+                    "status": status,
                 },
                 ensure_ascii=False,
             )
@@ -43,12 +54,14 @@ def run_update_check(json_output: bool = False) -> bool:
         console.print(f"当前版本: {__version__}")
         if current == "not installed":
             console.print("状态: 未安装")
+        elif has_update is None:
+            console.print("[yellow]无法确认更新状态[/yellow]")
         elif has_update:
             console.print("[yellow]有新版本可用[/yellow]")
         else:
             console.print("[green]已是最新版本[/green]")
 
-    return has_update
+    return has_update is True
 
 
 def run_update(source: Path | None = None, json_output: bool = False) -> bool:

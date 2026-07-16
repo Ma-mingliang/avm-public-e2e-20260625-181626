@@ -218,3 +218,81 @@ class TestTransitionMatrix:
                 if status in VALID_TRANSITIONS:
                     # 终态只能转换到IDLE
                     assert VALID_TRANSITIONS[status] == {TaskStatus.IDLE} or not VALID_TRANSITIONS[status]
+
+
+def test_corrupt_task_lock_fails_closed(temp_project):
+    """损坏的活动状态不得被解释为 IDLE。"""
+    from avm.core.paths import get_task_lock_path
+    from avm.exceptions import AVMError
+
+    get_task_lock_path(temp_project).write_text("{broken", encoding="utf-8")
+
+    with pytest.raises(AVMError, match="任务状态损坏"):
+        StateMachine(temp_project).load()
+
+
+def test_save_before_load_is_noop(temp_project):
+    sm = StateMachine(temp_project)
+    sm.save()
+    assert not sm._store.path.exists()
+
+
+def test_task_lock_property_lazy_loads_idle(temp_project):
+    sm = StateMachine(temp_project)
+    assert sm.task_lock is not None
+    assert sm.task_lock.status == TaskStatus.IDLE
+
+
+def test_transition_persists_expected_files_context(temp_project):
+    sm = StateMachine(temp_project)
+    sm.transition(TaskStatus.PREFLIGHT, {"expected_files": ["src/app.py"]})
+    assert StateMachine(temp_project).load().expected_files == ["src/app.py"]
+
+
+def test_active_helper_reports_non_idle_state(temp_project):
+    sm = StateMachine(temp_project)
+    sm.transition(TaskStatus.PREFLIGHT)
+    assert sm.is_active() is True
+
+
+def test_two_absent_state_readers_cannot_overwrite_each_other(temp_project):
+    from avm.exceptions import StateConflictError
+
+    first = StateMachine(temp_project)
+    second = StateMachine(temp_project)
+    first.load()
+    second.load()
+    first.transition(TaskStatus.PREFLIGHT)
+
+    with pytest.raises(StateConflictError):
+        second.transition(TaskStatus.PREFLIGHT)
+
+
+def test_transition_persists_all_context_fields(temp_project):
+    sm = StateMachine(temp_project)
+    sm.transition(
+        TaskStatus.PREFLIGHT,
+        {
+            "version": "v9",
+            "branch": "agent/v9",
+            "base_commit": "abc",
+            "agent": "codex",
+            "expected_files": ["src/app.py"],
+            "approval_id": "approval-1",
+        },
+    )
+    lock = StateMachine(temp_project).load()
+    assert lock.version == "v9"
+    assert lock.branch == "agent/v9"
+    assert lock.base_commit == "abc"
+    assert lock.agent.value == "codex"
+    assert lock.expected_files == ["src/app.py"]
+    assert lock.approval_id == "approval-1"
+
+
+def test_transition_accepts_agent_enum_context(temp_project):
+    from avm.models import AgentType
+
+    sm = StateMachine(temp_project)
+    sm.transition(TaskStatus.PREFLIGHT, {"agent": AgentType.HERMES})
+    assert sm.task_lock.agent == AgentType.HERMES

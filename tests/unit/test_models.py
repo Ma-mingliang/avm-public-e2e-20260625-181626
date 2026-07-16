@@ -90,7 +90,8 @@ class TestTaskLock:
     def test_default_lock(self):
         """测试默认锁"""
         lock = TaskLock()
-        assert lock.schema_version == 1
+        assert lock.schema_version == 2
+        assert lock.revision == 0
         assert lock.status == TaskStatus.IDLE
         assert lock.task_id  # UUID should be generated
 

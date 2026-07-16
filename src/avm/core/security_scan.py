@@ -170,6 +170,47 @@ class SecurityScanner:
             "has_high": any(f["severity"] == "HIGH" for f in findings),
         }
 
+    def scan_blobs(self, blobs: list[tuple[str, bytes]], max_file_size: int = DEFAULT_LARGE_FILE_THRESHOLD) -> dict:
+        """扫描 Git index blob，不读取可与暂存区不同的工作区。"""
+        findings: list[dict] = []
+        blocked_files: list[str] = []
+        large_files: list[str] = []
+        scanned_count = 0
+        for file_path, data in blobs:
+            if self._is_blocked_file(file_path):
+                blocked_files.append(file_path)
+                findings.append(
+                    {
+                        "file": file_path,
+                        "type": "blocked_file",
+                        "severity": "CRITICAL",
+                        "message": f"禁止提交的文件: {file_path}",
+                    }
+                )
+                continue
+            if len(data) > max_file_size:
+                large_files.append(file_path)
+                findings.append(
+                    {
+                        "file": file_path,
+                        "type": "large_file",
+                        "severity": "HIGH",
+                        "message": f"文件过大 ({len(data) / 1024:.0f}KB): {file_path}",
+                    }
+                )
+                continue
+            findings.extend(self._scan_content(data.decode("utf-8", errors="replace"), file_path))
+            scanned_count += 1
+        return {
+            "scanned": scanned_count,
+            "skipped": 0,
+            "blocked_files": blocked_files,
+            "large_files": large_files,
+            "findings": findings,
+            "has_critical": any(item["severity"] == "CRITICAL" for item in findings),
+            "has_high": any(item["severity"] == "HIGH" for item in findings),
+        }
+
     def _is_blocked_file(self, file_path: str) -> bool:
         """检查是否为禁止提交的文件"""
         name = Path(file_path).name.lower()

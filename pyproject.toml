@@ -7,7 +7,7 @@ name = "agent-version-manager"
 version = "1.0.0"
 description = "智能体版本管理器 - Agent Version Manager (AVM)"
 readme = "README.md"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 authors = [
     { name = "AVM Team" },
@@ -41,6 +41,8 @@ dev = [
     "pytest-mock>=3.11.0",
     "ruff>=0.1.0",
     "detect-secrets>=1.4.0",
+    "build>=1.2.0",
+    "pyright>=1.1.390",
 ]
 
 [project.scripts]
@@ -60,3 +62,10 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/avm"]
+
+[tool.coverage.report]
+fail_under = 85

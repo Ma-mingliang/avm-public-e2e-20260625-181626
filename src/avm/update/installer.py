@@ -10,6 +10,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..core.hashing import compute_file_sha256
+from ..core.io import atomic_write_json, read_json
+
 
 class Installer:
     """AVM 安装器
@@ -42,6 +45,17 @@ class Installer:
             except Exception:
                 return "unknown"
         return "not installed"
+
+    def get_latest_version(self) -> str:
+        """从 PyPI 查询实际最新版本；查询失败由调用方显式处理。"""
+        import urllib.request
+
+        with urllib.request.urlopen("https://pypi.org/pypi/agent-version-manager/json", timeout=10) as response:
+            data = json.load(response)
+        version = data.get("info", {}).get("version")
+        if not isinstance(version, str) or not version:
+            raise RuntimeError("PyPI 响应缺少版本")
+        return version
 
     def install(self, source: Path | None = None) -> dict[str, Any]:
         """安装 AVM
@@ -209,8 +223,27 @@ class Installer:
 
         latest_backup = backups[-1]
 
-        # 2. 恢复备份
+        # 2. 只有可验证、可重新安装的制品才构成代码回滚。
         try:
+            artifact_record_path = Path(latest_backup["path"]) / "artifact.json"
+            if not artifact_record_path.exists():
+                result["steps"].append(
+                    {
+                        "step": "restore",
+                        "status": "error",
+                        "message": "旧备份不包含可重新安装的制品，不能证明代码已回滚",
+                    }
+                )
+                result["success"] = False
+                return result
+            artifact_record = read_json(artifact_record_path)
+            artifact = Path(artifact_record["artifact_path"]).resolve()
+            backup_root = Path(latest_backup["path"]).resolve()
+            if backup_root not in artifact.parents:
+                raise RuntimeError("回滚制品路径超出备份目录")
+            if not artifact.is_file() or compute_file_sha256(artifact) != artifact_record.get("sha256"):
+                raise RuntimeError("回滚制品完整性校验失败")
+            self._pip_install(artifact)
             self._restore_backup(latest_backup)
             result["steps"].append(
                 {
@@ -248,6 +281,28 @@ class Installer:
             capture_output=True,
             text=True,
         )
+
+    def _pip_install(self, artifact: Path) -> None:
+        """重新安装已校验的本地制品。"""
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--force-reinstall", str(artifact)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def _record_artifact_backup(self, artifact: Path, version: str) -> dict[str, str]:
+        """把可重新安装制品复制到独立备份并记录哈希。"""
+        backup_path = self._backup_current()
+        target = backup_path / artifact.name
+        shutil.copy2(artifact, target)
+        record = {
+            "version": version,
+            "artifact_path": str(target),
+            "sha256": compute_file_sha256(target),
+        }
+        atomic_write_json(backup_path / "artifact.json", record)
+        return record
 
     def _backup_current(self) -> Path:
         """备份当前版本"""

@@ -34,7 +34,7 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest tests/ -v --cov=src/avm --cov-report=xml --cov-report=term-missing
+        pytest tests/ -v --cov=src/avm --cov-branch --cov-report=xml --cov-report=term-missing --cov-fail-under=85
 
     - name: Upload coverage
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -82,3 +82,18 @@ jobs:
     - name: Run pyright
       run: |
         pyright src/avm/
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Build and smoke-test wheel
+      run: |
+        python -m pip install --upgrade pip build detect-secrets
+        python -m build
+        python -m pip install --force-reinstall dist/*.whl
+        avm --help
+        detect-secrets scan --baseline .secrets.baseline

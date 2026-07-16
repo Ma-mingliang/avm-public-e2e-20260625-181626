@@ -2,7 +2,7 @@
 
 智能体版本管理器 — 为 Claude Code、Hermes、Codex 等 AI Agent 提供结构化的版本发布工作流。
 
-AVM 通过状态机驱动的任务生命周期、HMAC 签名审批、安全扫描和 GitHub 集成，确保 Agent 修改代码的过程可追踪、可审计、可回滚。
+AVM 是 Beta 阶段工具，通过状态机、HMAC 审批、安全扫描和 GitHub 集成，帮助检查 Agent 修改代码的可追踪性、可审计性与可恢复性。安全相关错误默认阻断；生产使用前仍应在目标 GitHub 环境完成真实 E2E 验证。
 
 ## 功能特性
 
@@ -331,9 +331,3 @@ avm status
 ## 许可证
 
 MIT License
-# E2E test
-
-## AVM Publish E2E Verification
-
-This line was added during the AVM publish E2E test on 2026-06-26.
-# v3 changes

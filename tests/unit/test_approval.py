@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+import keyring
 import pytest
 
 from avm.core.approval import ApprovalManager
@@ -15,6 +16,12 @@ def temp_project(tmp_path):
     version_dir = tmp_path / "版本管理"
     version_dir.mkdir(parents=True)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def approval_test_key(monkeypatch):
+    """审批测试必须显式提供密钥，不依赖主机 keyring。"""
+    monkeypatch.setenv("AVM_HMAC_KEY", "11" * 32)
 
 
 @pytest.fixture
@@ -251,3 +258,75 @@ class TestApprovalManager:
         with pytest.raises(ApprovalError) as exc_info:
             manager.validate_approval(sample_task_lock)
         assert "版本不匹配" in str(exc_info.value)
+
+    def test_start_approval_cannot_authorize_final_release(self, temp_project, sample_task_lock):
+        manager = ApprovalManager(temp_project)
+        manager.create_approval(
+            task_lock=sample_task_lock,
+            approval_type=ApprovalType.START,
+            approver="测试用户",
+            content_hash="subject-hash",
+        )
+        sample_task_lock.status = TaskStatus.PR_READY
+
+        with pytest.raises(ApprovalError, match="审批类型"):
+            manager.validate_approval(sample_task_lock, actual_content_hash="subject-hash")
+
+    def test_signed_approval_cannot_be_replayed_to_another_task(self, temp_project, sample_task_lock):
+        manager = ApprovalManager(temp_project)
+        record = manager.create_approval(
+            task_lock=sample_task_lock,
+            approval_type=ApprovalType.START,
+            approver="测试用户",
+            content_hash="subject-hash",
+        )
+        other = sample_task_lock.model_copy(update={"task_id": "other-task"})
+        approvals = manager._load_all_approvals()
+        approvals[other.task_id] = approvals[record.task_id]
+        from avm.core.io import atomic_write_json
+
+        atomic_write_json(manager.approval_path, approvals)
+
+        with pytest.raises(ApprovalError, match="任务不匹配"):
+            manager.validate_approval(other, actual_content_hash="subject-hash")
+
+    def test_corrupted_approval_store_is_not_silently_overwritten(self, temp_project, sample_task_lock):
+        manager = ApprovalManager(temp_project)
+        manager.approval_path.parent.mkdir(parents=True, exist_ok=True)
+        manager.approval_path.write_text("{broken", encoding="utf-8")
+
+        with pytest.raises(ApprovalError, match="审批记录损坏"):
+            manager.create_approval(
+                task_lock=sample_task_lock,
+                approval_type=ApprovalType.START,
+                approver="测试用户",
+                content_hash="subject-hash",
+            )
+
+        assert manager.approval_path.read_text(encoding="utf-8") == "{broken"
+
+
+def test_generated_key_round_trips_through_keyring(monkeypatch, tmp_path):
+    saved = {}
+    monkeypatch.delenv("AVM_HMAC_KEY", raising=False)
+    monkeypatch.setattr(keyring, "get_password", lambda service, user: saved.get((service, user)))
+    monkeypatch.setattr(
+        keyring,
+        "set_password",
+        lambda service, user, value: saved.__setitem__((service, user), value),
+    )
+    manager = ApprovalManager(tmp_path)
+
+    assert manager._get_signing_key() == manager._get_signing_key()
+
+
+def test_keyring_failure_without_environment_key_is_closed(monkeypatch, tmp_path):
+    monkeypatch.delenv("AVM_HMAC_KEY", raising=False)
+
+    def fail(*_args):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(keyring, "get_password", fail)
+
+    with pytest.raises(ApprovalError, match="密钥不可用"):
+        ApprovalManager(tmp_path)._get_signing_key()

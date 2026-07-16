@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from ..exceptions import GitHubError
@@ -15,7 +16,12 @@ class GitHubClient:
     使用 gh CLI 工具与 GitHub API 交互。
     """
 
-    def __init__(self, repo_owner: str | None = None, repo_name: str | None = None):
+    def __init__(
+        self,
+        repo_owner: str | None = None,
+        repo_name: str | None = None,
+        project_root: Path | None = None,
+    ):
         """初始化客户端
 
         Args:
@@ -24,6 +30,7 @@ class GitHubClient:
         """
         self.repo_owner = repo_owner
         self.repo_name = repo_name
+        self.project_root = project_root.resolve() if project_root is not None else None
         self._detect_repo()
 
     def _detect_repo(self) -> None:
@@ -37,6 +44,7 @@ class GitHubClient:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                cwd=self.project_root,
             )
             if result.returncode == 0:
                 data = json.loads(result.stdout)
@@ -63,6 +71,7 @@ class GitHubClient:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                cwd=self.project_root,
             )
             if check and result.returncode != 0:
                 raise GitHubError(f"gh 命令失败: {result.stderr}")
@@ -143,7 +152,7 @@ class GitHubClient:
             delete_branch: 是否删除源分支
 
         Returns:
-            合并结果
+            合并结果，含 merge_commit_sha
         """
         args = [
             "pr",
@@ -155,7 +164,34 @@ class GitHubClient:
             args.append("--delete-branch")
 
         self._run_gh(args)
-        return {"merged": True, "method": merge_method}
+
+        # 获取 merge commit SHA
+        merge_sha = self._get_merge_commit_sha(pr_number)
+
+        return {"merged": True, "method": merge_method, "merge_commit_sha": merge_sha}
+
+    def _get_merge_commit_sha(self, pr_number: int) -> str:
+        """获取 PR 的 merge commit SHA
+
+        Args:
+            pr_number: PR 编号
+
+        Returns:
+            merge commit SHA，获取失败返回空字符串
+        """
+        try:
+            result = self._run_gh(
+                ["pr", "view", str(pr_number), "--json", "mergeCommit"],
+                check=False,
+            )
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                merge_commit = data.get("mergeCommit")
+                if merge_commit:
+                    return merge_commit.get("oid", "")
+        except Exception:
+            pass
+        return ""
 
     def create_tag(self, tag_name: str, message: str, target: str = "HEAD") -> dict[str, Any]:
         """创建标签
@@ -278,6 +314,115 @@ class GitHubClient:
             return None
         except Exception:
             return None
+
+    def get_commit_sha(self, sha: str) -> str | None:
+        """验证远程 commit 是否存在
+
+        Args:
+            sha: commit SHA
+
+        Returns:
+            验证后的 SHA，不存在返回 None
+        """
+        args = ["api", f"repos/{self.repo_owner}/{self.repo_name}/git/commits/{sha}"]
+        try:
+            result = self._run_gh(args, check=False)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                return data.get("sha")
+            return None
+        except Exception:
+            return None
+
+    def is_commit_on_branch(self, sha: str, branch: str) -> bool:
+        """验证 commit 是目标分支当前提交的祖先。"""
+        args = ["api", f"repos/{self.repo_owner}/{self.repo_name}/compare/{sha}...{branch}"]
+        try:
+            result = self._run_gh(args, check=False)
+            if result.returncode != 0:
+                return False
+            status = json.loads(result.stdout).get("status")
+            return status in ("ahead", "identical")
+        except Exception:
+            return False
+
+    def tag_exists(self, tag_name: str) -> bool:
+        """检查远程 tag 是否存在
+
+        Args:
+            tag_name: tag 名称
+
+        Returns:
+            tag 是否存在
+        """
+        args = ["api", f"repos/{self.repo_owner}/{self.repo_name}/git/ref/tags/{tag_name}"]
+        try:
+            result = self._run_gh(args, check=False)
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def get_tag_target(self, tag_name: str) -> str | None:
+        """返回轻量或注释标签最终指向的 commit SHA。"""
+        result = self._run_gh(
+            ["api", f"repos/{self.repo_owner}/{self.repo_name}/git/ref/tags/{tag_name}"],
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        data = json.loads(result.stdout)
+        obj = data.get("object", {})
+        sha = obj.get("sha")
+        if obj.get("type") == "tag" and sha:
+            tag_result = self._run_gh(
+                ["api", f"repos/{self.repo_owner}/{self.repo_name}/git/tags/{sha}"],
+                check=False,
+            )
+            if tag_result.returncode != 0:
+                return None
+            return json.loads(tag_result.stdout).get("object", {}).get("sha")
+        return sha
+
+    def release_exists(self, tag_name: str) -> bool:
+        """检查 release 是否存在
+
+        Args:
+            tag_name: tag 名称
+
+        Returns:
+            release 是否存在
+        """
+        args = ["release", "view", tag_name]
+        try:
+            result = self._run_gh(args, check=False)
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def get_release(self, tag_name: str) -> dict[str, Any] | None:
+        result = self._run_gh(
+            ["release", "view", tag_name, "--json", "tagName,body,url"],
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return json.loads(result.stdout)
+
+    def delete_branch(self, branch_name: str) -> bool:
+        """删除远程分支
+
+        Args:
+            branch_name: 分支名称
+
+        Returns:
+            是否成功删除
+        """
+        args = ["api", f"repos/{self.repo_owner}/{self.repo_name}/git/refs/heads/{branch_name}", "-X", "DELETE"]
+        try:
+            result = self._run_gh(args, check=False)
+            return result.returncode == 0
+        except Exception:
+            return False
 
     def list_workflow_runs(self, workflow: str, branch: str | None = None) -> list[dict[str, Any]]:
         """列出工作流运行
