@@ -6,6 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib import error, parse, request
 
 from ..exceptions import GitHubError
 
@@ -116,14 +117,69 @@ class GitHubClient:
         if draft:
             args.append("--draft")
 
-        result = self._run_gh(args)
+        try:
+            result = self._run_gh(args)
+            pr_info = self.get_pull_request(result.stdout.strip())
+            return self._normalize_pull_request(pr_info)
+        except GitHubError:
+            return self._create_pull_request_rest(title, body, head, base, draft)
 
-        # 解析 PR URL
-        pr_url = result.stdout.strip()
+    def _create_pull_request_rest(self, title: str, body: str, head: str, base: str, draft: bool) -> dict[str, Any]:
+        """使用已登录 gh 的 token 创建或复用开放 PR。"""
+        if not self.repo_owner or not self.repo_name:
+            raise GitHubError("GitHub REST 回退失败: 未检测到仓库信息")
+        try:
+            token = self._run_gh(["auth", "token"]).stdout.strip()
+            if not token:
+                raise GitHubError("未获取到 GitHub token")
+            repo_path = f"repos/{self.repo_owner}/{self.repo_name}/pulls"
+            head_query = parse.urlencode({"state": "open", "head": f"{self.repo_owner}:{head}"})
+            existing = self._run_rest("GET", f"{repo_path}?{head_query}", token)
+            if isinstance(existing, list):
+                for pr in existing:
+                    if pr.get("head", {}).get("ref") == head:
+                        return self._normalize_pull_request(pr)
+            created = self._run_rest(
+                "POST",
+                repo_path,
+                token,
+                {"title": title, "body": body, "head": head, "base": base, "draft": draft},
+            )
+            return self._normalize_pull_request(created)
+        except GitHubError as exc:
+            raise GitHubError(f"GitHub REST 回退失败: {exc}") from exc
 
-        # 获取 PR 详情
-        pr_info = self.get_pull_request(pr_url)
-        return pr_info
+    def _run_rest(self, method: str, path: str, token: str, payload: dict[str, Any] | None = None) -> Any:
+        """调用 GitHub REST API；调用方不得记录 token。"""
+        data = json.dumps(payload).encode("utf-8") if payload is not None else None
+        api_request = request.Request(
+            f"https://api.github.com/{path}",
+            data=data,
+            method=method,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with request.urlopen(api_request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except (error.HTTPError, error.URLError, OSError, json.JSONDecodeError) as exc:
+            raise GitHubError(f"GitHub REST 请求失败: {exc}") from exc
+
+    @staticmethod
+    def _normalize_pull_request(pr: dict[str, Any]) -> dict[str, Any]:
+        """将 gh GraphQL 和 REST 响应统一为 PR 命令使用的字段。"""
+        number = pr.get("number")
+        url = pr.get("html_url") or pr.get("url")
+        if isinstance(number, bool) or not isinstance(number, int) or not isinstance(url, str) or not url:
+            raise GitHubError("GitHub PR 响应缺少有效编号或 URL")
+        normalized = dict(pr)
+        normalized["number"] = number
+        normalized["html_url"] = url
+        return normalized
 
     def get_pull_request(self, pr_url: str) -> dict[str, Any]:
         """获取 PR 信息

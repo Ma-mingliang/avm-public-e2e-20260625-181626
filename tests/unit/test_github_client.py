@@ -68,6 +68,61 @@ class TestGitHubClient:
         assert pr["number"] == 1
         assert pr["title"] == "Test PR"
 
+    @patch("urllib.request.urlopen")
+    def test_create_pull_request_falls_back_to_rest_after_gh_failure(self, mock_urlopen, mock_gh):
+        """gh TLS 失败时，使用现有登录凭据通过 REST 创建 PR。"""
+        mock_gh.side_effect = [
+            MagicMock(returncode=1, stdout="", stderr="TLS handshake timeout"),
+            MagicMock(returncode=0, stdout="token-from-gh\n", stderr=""),
+        ]
+        response = MagicMock()
+        response.read.return_value = json.dumps(
+            {"number": 7, "html_url": "https://github.com/testuser/testrepo/pull/7", "state": "open"}
+        ).encode()
+        mock_urlopen.return_value.__enter__.return_value = response
+
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        pr = client.create_pull_request("Test PR", "Test body", "feature")
+
+        assert pr["number"] == 7
+        assert pr["html_url"] == "https://github.com/testuser/testrepo/pull/7"
+        request = mock_urlopen.call_args.args[0]
+        assert request.full_url.endswith("/repos/testuser/testrepo/pulls")
+        assert request.method == "POST"
+
+    @patch("urllib.request.urlopen")
+    def test_create_pull_request_reuses_existing_rest_pr_after_gh_view_failure(self, mock_urlopen, mock_gh):
+        """gh 创建后查询失败时，REST 必须复用同源分支的开放 PR。"""
+        mock_gh.side_effect = [
+            MagicMock(returncode=0, stdout="https://github.com/testuser/testrepo/pull/8\n", stderr=""),
+            MagicMock(returncode=1, stdout="", stderr="TLS handshake timeout"),
+            MagicMock(returncode=0, stdout="token-from-gh\n", stderr=""),
+        ]
+        response = MagicMock()
+        response.read.return_value = json.dumps(
+            [{"number": 8, "html_url": "https://github.com/testuser/testrepo/pull/8", "head": {"ref": "feature"}}]
+        ).encode()
+        mock_urlopen.return_value.__enter__.return_value = response
+
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        pr = client.create_pull_request("Test PR", "Test body", "feature")
+
+        assert pr["number"] == 8
+        assert mock_urlopen.call_count == 1
+        assert mock_urlopen.call_args.args[0].method == "GET"
+
+    @patch("urllib.request.urlopen", side_effect=OSError("network unavailable"))
+    def test_create_pull_request_fails_closed_when_rest_fallback_fails(self, _mock_urlopen, mock_gh):
+        """gh 与 REST 都失败时，创建 PR 必须失败闭合。"""
+        mock_gh.side_effect = [
+            MagicMock(returncode=1, stdout="", stderr="TLS handshake timeout"),
+            MagicMock(returncode=0, stdout="token-from-gh\n", stderr=""),
+        ]
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+
+        with pytest.raises(GitHubError, match="REST"):
+            client.create_pull_request("Test PR", "Test body", "feature")
+
     def test_merge_pull_request(self, mock_gh):
         """测试合并 PR"""
         mock_gh.return_value = MagicMock(returncode=0, stdout="")
