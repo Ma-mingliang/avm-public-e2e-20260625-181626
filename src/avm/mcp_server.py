@@ -12,16 +12,17 @@ import json
 import os
 import sys
 from datetime import UTC, datetime
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 from .commands.approve import run_approve
 from .commands.checkpoint import run_checkpoint
 from .commands.preflight import run_preflight
 from .commands.pr import run_create_pr, run_merge
-from .commands.review import run_prepare_review
 from .commands.publish import run_publish
+from .commands.review import run_prepare_review
 from .commands.start import run_start
 from .commands.validate import run_validate
 from .commands.status import _get_status
@@ -177,7 +178,8 @@ class AVMMCPServer:
             try:
                 params = message.get("params", {})
                 result = self.call_tool(params["name"], params.get("arguments", {}))
-                return {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": False}}
+                content = [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]
+                return {"jsonrpc": "2.0", "id": request_id, "result": {"content": content, "isError": False}}
             except Exception as exc:
                 return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": str(exc)}}
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": f"method not found: {method}"}}

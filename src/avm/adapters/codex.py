@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import subprocess
 import os
+import subprocess
 from typing import Any
 
 from ..models import AgentType, TaskLock
