@@ -26,6 +26,9 @@ def run_approve(
     approver: str | None = None,
     notes: str = "",
     json_output: bool = False,
+    approval_source: str = "human",
+    policy_version: str = "",
+    call_id: str = "",
 ) -> bool:
     """用户审批
 
@@ -162,6 +165,10 @@ def run_approve(
             approver=approver,
             notes=notes,
             content_hash=content_hash,
+            approval_source=approval_source,
+            policy_version=policy_version,
+            call_id=call_id,
+            approved_head_sha=approved_head_sha,
         )
         result["approval_id"] = record.approval_id
         result["steps"].append(

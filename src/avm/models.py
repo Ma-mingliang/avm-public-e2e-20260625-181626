@@ -93,6 +93,7 @@ class AgentType(StrEnum):
     CLAUDE_CODE = "claude-code"
     HERMES = "hermes"
     CODEX = "codex"
+    WORKBUDDY = "workbuddy"
 
 
 class ProjectInfo(BaseModel):
@@ -156,6 +157,7 @@ class AgentAdaptersConfig(BaseModel):
     claude_code: bool = True
     hermes: bool = True
     codex: bool = True
+    workbuddy: bool = True
 
 
 class ProjectConfig(BaseModel):
@@ -209,6 +211,11 @@ class ApprovalRecord(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     expires_at: str = ""
     content_hash: str = ""  # 绑定文件内容、base_commit、配置等的哈希
+    approval_source: str = "human"  # human 或 machine，机器审批必须显式标记
+    agent: str = ""
+    policy_version: str = ""
+    call_id: str = ""
+    approved_head_sha: str = ""
 
     def is_expired(self) -> bool:
         """检查是否过期"""

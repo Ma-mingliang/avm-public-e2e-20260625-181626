@@ -47,6 +47,7 @@ dev = [
 
 [project.scripts]
 avm = "avm.cli:app"
+avm-mcp = "avm.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/avm"]
