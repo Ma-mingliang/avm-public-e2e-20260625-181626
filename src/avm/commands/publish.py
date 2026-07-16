@@ -151,19 +151,27 @@ def run_publish(project_path: Path, json_output: bool = False) -> bool:
         )
 
     try:
-        manifest = generate_release_manifest(task_lock, merge_sha=merge_sha, release_url="")
-        release_body = format_release_body(manifest)
-        release_url = saga.ensure_release(
-            tag_name,
-            f"Release {version}",
-            release_body,
-            manifest["manifest_hash"],
-        )
+        if task_lock.manifest_hash:
+            # Release 成功后、清理前失败时，必须复用首次已持久化的
+            # manifest；重新生成会因 published_at 改变而产生假冲突。
+            if client.get_release(tag_name) is None:
+                raise RuntimeError("已持久化 manifest 但远端 Release 不存在")
+            manifest_hash = task_lock.manifest_hash
+            release_url = saga.ensure_release(tag_name, f"Release {version}", "", manifest_hash)
+        else:
+            manifest = generate_release_manifest(task_lock, merge_sha=merge_sha, release_url="")
+            manifest_hash = manifest["manifest_hash"]
+            release_url = saga.ensure_release(
+                tag_name,
+                f"Release {version}",
+                format_release_body(manifest),
+                manifest_hash,
+            )
         result["release_url"] = release_url
         active_lock = sm.task_lock
         if active_lock is None:
             raise RuntimeError("发布状态丢失")
-        active_lock.manifest_hash = manifest["manifest_hash"]
+        active_lock.manifest_hash = manifest_hash
         active_lock.release_url = release_url
         active_lock.published_at = datetime.now(UTC).isoformat()
         sm.save()

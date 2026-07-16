@@ -65,6 +65,9 @@ class TestGitOps:
         ops.create_branch("test-branch")
         assert ops.delete_branch("test-branch")
 
+    def test_delete_missing_local_branch_is_already_cleaned(self, git_repo):
+        assert GitOps(git_repo).delete_branch("missing-branch")
+
     def test_stage_and_commit(self, git_repo):
         """测试暂存和提交"""
         ops = GitOps(git_repo)

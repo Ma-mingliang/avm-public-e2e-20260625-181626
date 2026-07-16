@@ -348,7 +348,7 @@ class GitHubClient:
         args = ["api", f"repos/{self.repo_owner}/{self.repo_name}/git/refs/{ref}", "-X", "DELETE"]
         try:
             result = self._run_gh(args, check=False)
-            return result.returncode == 0
+            return result.returncode == 0 or self._is_missing_reference_response(result.stderr)
         except Exception:
             return False
 
@@ -476,9 +476,17 @@ class GitHubClient:
         args = ["api", f"repos/{self.repo_owner}/{self.repo_name}/git/refs/heads/{branch_name}", "-X", "DELETE"]
         try:
             result = self._run_gh(args, check=False)
-            return result.returncode == 0
+            # GitHub 可在合并时自动删除源分支；404 表示目标已不存在，
+            # 对发布后清理而言这与删除成功等价。
+            return result.returncode == 0 or self._is_missing_reference_response(result.stderr)
         except Exception:
             return False
+
+    @staticmethod
+    def _is_missing_reference_response(stderr: str) -> bool:
+        """GitHub 删除不存在 Git ref 时可能返回 404 或 422。"""
+        lowered = stderr.lower()
+        return "404" in lowered or ("422" in lowered and "reference does not exist" in lowered)
 
     def list_workflow_runs(self, workflow: str, branch: str | None = None) -> list[dict[str, Any]]:
         """列出工作流运行

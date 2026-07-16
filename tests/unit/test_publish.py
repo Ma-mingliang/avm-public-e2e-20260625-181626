@@ -26,7 +26,7 @@ def project_dir(tmp_path):
     return tmp_path
 
 
-def _create_lock(project_dir, status, version="v1", merge_sha="abc123def456"):
+def _create_lock(project_dir, status, version="v1", merge_sha="abc123def456", manifest_hash=""):
     lock_path = get_task_lock_path(project_dir)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(
@@ -42,12 +42,34 @@ def _create_lock(project_dir, status, version="v1", merge_sha="abc123def456"):
             "expected_files": [],
             "approved_head_sha": "approved-head",
             "merge_sha": merge_sha,
+            "manifest_hash": manifest_hash,
             "pr_number": 1,
         },
     )
 
 
 class TestRunPublish:
+    @patch(
+        "avm.commands.publish.generate_release_manifest", side_effect=AssertionError("must reuse persisted manifest")
+    )
+    @patch("avm.commands.publish.PublishSaga")
+    @patch("avm.commands.publish.GitHubClient")
+    @patch("avm.commands.publish.GitOps")
+    def test_publish_retry_reuses_persisted_manifest_hash(
+        self, mock_git_cls, mock_gh_cls, saga_cls, _manifest, project_dir
+    ):
+        """发布在清理后重试时，必须复用首次 Release 的 manifest 哈希。"""
+        persisted_hash = "a" * 64
+        _create_lock(project_dir, "PUBLISH_INCOMPLETE", manifest_hash=persisted_hash)
+        mock_git_cls.return_value.is_repo.return_value = True
+        mock_gh_cls.return_value.get_commit_sha.return_value = "abc123def456"
+        saga_cls.return_value.ensure_release.return_value = "https://github.com/test/releases/v1"
+        saga_cls.return_value.ensure_tag.return_value = None
+
+        assert run_publish(project_dir) is True
+        saga_cls.return_value.ensure_release.assert_called_once()
+        assert saga_cls.return_value.ensure_release.call_args.args[-1] == persisted_hash
+
     @patch("avm.commands.approve._compute_content_hash", return_value="approval-hash")
     @patch("avm.commands.publish.GitHubClient")
     @patch("avm.commands.publish.GitOps")

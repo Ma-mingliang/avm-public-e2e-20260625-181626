@@ -232,6 +232,9 @@ class GitOps:
             if remote:
                 self._run_git(["push", "origin", "--delete", branch_name], check=False)
             else:
+                exists = self._run_git(["show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}"], check=False)
+                if exists.returncode != 0:
+                    return True
                 self._run_git(["branch", "-d", branch_name])
             return True
         except GitError:

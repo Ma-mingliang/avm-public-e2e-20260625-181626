@@ -355,6 +355,21 @@ class TestNewMethods:
         client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
         assert client.delete_branch("feature") is False
 
+    def test_delete_branch_treats_github_404_as_already_cleaned(self, mock_gh):
+        mock_gh.return_value = MagicMock(returncode=1, stderr="HTTP 404: Not Found")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.delete_branch("feature") is True
+
+    def test_delete_branch_treats_missing_ref_422_as_already_cleaned(self, mock_gh):
+        mock_gh.return_value = MagicMock(returncode=1, stderr="HTTP 422: Reference does not exist")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.delete_branch("feature") is True
+
+    def test_delete_reference_treats_missing_ref_422_as_already_cleaned(self, mock_gh):
+        mock_gh.return_value = MagicMock(returncode=1, stderr="HTTP 422: Reference does not exist")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.delete_reference("heads/avm/system-lock") is True
+
     def test_delete_branch_exception(self, mock_gh):
         mock_gh.side_effect = Exception("error")
         client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
