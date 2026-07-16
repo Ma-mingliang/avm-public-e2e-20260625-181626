@@ -40,6 +40,7 @@ def _create_lock(project_dir, status, version="v1", merge_sha="abc123def456"):
             "base_commit": "abc123",
             "started_at": "2024-01-01T00:00:00+00:00",
             "expected_files": [],
+            "approved_head_sha": "approved-head",
             "merge_sha": merge_sha,
             "pr_number": 1,
         },
@@ -47,6 +48,35 @@ def _create_lock(project_dir, status, version="v1", merge_sha="abc123def456"):
 
 
 class TestRunPublish:
+    @patch("avm.commands.approve._compute_content_hash", return_value="approval-hash")
+    @patch("avm.commands.publish.GitHubClient")
+    @patch("avm.commands.publish.GitOps")
+    def test_publish_uses_persisted_approved_head(self, mock_git_cls, mock_gh_cls, mock_hash, project_dir):
+        """任务分支被合并删除后，发布仍必须验证最终审批时冻结的 SHA。"""
+        _create_lock(project_dir, "PR_READY")
+        mock_git = MagicMock()
+        mock_git.is_repo.return_value = True
+        mock_git_cls.return_value = mock_git
+        mock_gh = MagicMock()
+        mock_gh.get_commit_sha.return_value = "abc123def456"
+        mock_gh.create_release.return_value = {"url": "https://github.com/test/releases/v1"}
+        mock_gh_cls.return_value = mock_gh
+
+        assert run_publish(project_dir) is True
+        args, kwargs = mock_hash.call_args
+        assert args[0] == project_dir
+        assert kwargs == {"git": mock_git, "head_sha": "approved-head"}
+
+    def test_publish_blocks_legacy_lock_without_approved_head(self, project_dir):
+        """旧锁缺少冻结 SHA 时，禁止用合并后的 HEAD 猜测审批对象。"""
+        _create_lock(project_dir, "MERGING")
+        lock_path = get_task_lock_path(project_dir)
+        data = json.loads(lock_path.read_text(encoding="utf-8"))
+        data.pop("approved_head_sha")
+        atomic_write_json(lock_path, data)
+
+        assert run_publish(project_dir, json_output=True) is False
+
     @patch("avm.commands.publish.GitHubClient")
     @patch("avm.commands.publish.GitOps")
     def test_publish_success(self, mock_git_cls, mock_gh_cls, project_dir):

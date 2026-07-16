@@ -119,8 +119,15 @@ def run_approve(
 
     # 5. 计算内容哈希（绑定 base_commit、文件 SHA-256、配置）
     content_hash = ""
+    approved_head_sha = ""
     try:
-        content_hash = _compute_content_hash(project_path, task_lock)
+        # FINAL_RELEASE 必须让签名和持久化的提交 SHA 来自同一个读取点。
+        # 否则审批哈希与随后保存的 SHA 之间可能出现提交竞态。
+        if approval_type == ApprovalType.FINAL_RELEASE:
+            approved_head_sha = GitOps(project_path).get_head_sha()
+            content_hash = _compute_content_hash(project_path, task_lock, head_sha=approved_head_sha)
+        else:
+            content_hash = _compute_content_hash(project_path, task_lock)
         result["steps"].append(
             {
                 "step": "compute_content_hash",
@@ -178,6 +185,8 @@ def run_approve(
     else:
         # FINAL_RELEASE 审批：直接转换到 PR_READY
         try:
+            task_lock.approved_head_sha = approved_head_sha
+            sm.save()
             sm.transition(next_status, {"approval_id": record.approval_id})
             result["status"] = next_status.value
             result["steps"].append(
@@ -203,7 +212,12 @@ def run_approve(
     return True
 
 
-def _compute_content_hash(project_path: Path, task_lock: Any, git: GitOps | None = None) -> str:
+def _compute_content_hash(
+    project_path: Path,
+    task_lock: Any,
+    git: GitOps | None = None,
+    head_sha: str | None = None,
+) -> str:
     """计算内容哈希，绑定 base_commit、文件 SHA-256、配置
 
     Args:
@@ -220,7 +234,7 @@ def _compute_content_hash(project_path: Path, task_lock: Any, git: GitOps | None
 
     # 审批必须绑定已提交事实。即使工作区干净，HEAD 或 tree 改变也
     # 必须改变审批哈希，防止审批后追加提交仍沿用旧授权。
-    head_sha = git.get_head_sha()
+    head_sha = head_sha or git.get_head_sha()
     tree_sha = git.get_tree_sha(head_sha)
 
     # 获取暂存区和已修改文件
