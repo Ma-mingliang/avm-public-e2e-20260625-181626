@@ -83,10 +83,13 @@ class TestRunCreatePr:
         mock_git_cls.return_value = mock_git
 
         mock_gh = MagicMock()
-        mock_gh.create_pull_request.side_effect = lambda **_kwargs: events.append("create_pr") or {
-            "html_url": "https://github.com/test/pr/1",
-            "number": 1,
-        }
+        mock_gh.create_pull_request.side_effect = lambda **_kwargs: (
+            events.append("create_pr")
+            or {
+                "html_url": "https://github.com/test/pr/1",
+                "number": 1,
+            }
+        )
         mock_gh_cls.return_value = mock_gh
 
         assert run_create_pr(project_dir) is True
