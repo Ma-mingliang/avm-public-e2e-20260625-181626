@@ -82,6 +82,29 @@ class GitOps:
         result = self._run_git(["rev-parse", "HEAD"])
         return result.stdout.strip()
 
+    def get_tree_sha(self, ref: str = "HEAD") -> str:
+        """获取提交对应的不可变 tree SHA。"""
+        result = self._run_git(["rev-parse", f"{ref}^{{tree}}"])
+        return result.stdout.strip()
+
+    def get_commit_manifest(self, base_ref: str, head_ref: str = "HEAD") -> list[dict[str, str]]:
+        """返回两个提交间的 NUL 安全文件/目标 blob 清单。"""
+        result = self._run_git(["diff", "--name-status", "--no-renames", "-z", base_ref, head_ref])
+        entries = [entry for entry in result.stdout.split("\0") if entry]
+        manifest: list[dict[str, str]] = []
+        index = 0
+        while index + 1 < len(entries):
+            status = entries[index]
+            path = entries[index + 1]
+            index += 2
+            blob = ""
+            if not status.startswith("D"):
+                blob_result = self._run_git(["rev-parse", f"{head_ref}:{path}"], check=False)
+                if blob_result.returncode == 0:
+                    blob = blob_result.stdout.strip()
+            manifest.append({"status": status, "path": path, "blob_sha": blob})
+        return manifest
+
     def get_remote_url(self, remote: str = "origin") -> str | None:
         """获取远程仓库 URL"""
         try:
@@ -268,11 +291,15 @@ class GitOps:
         return self.push(remote, f"refs/tags/{tag_name}")
 
     def get_status(self) -> dict[str, Any]:
-        """获取仓库状态"""
-        result = self._run_git(["status", "--porcelain=v2", "--branch"])
+        """获取仓库状态
+
+        使用 -z 标志获取 NUL 分隔的输出，避免中文路径、空格路径
+        在 Windows 上被 C-style 转义的问题。
+        """
+        result = self._run_git(["status", "--porcelain=v2", "--branch", "-z"])
 
         # 解析状态
-        status = {
+        status: dict[str, Any] = {
             "branch": "",
             "ahead": 0,
             "behind": 0,
@@ -282,33 +309,81 @@ class GitOps:
             "untracked": [],
         }
 
-        for line in result.stdout.strip().split("\n"):
-            if line.startswith("# branch.head"):
-                status["branch"] = line.split("\t")[1] if "\t" in line else ""
-            elif line.startswith("# branch.ab"):
-                # 解析 ahead/behind
-                parts = line.split("\t")[1] if "\t" in line else ""
-                for part in parts.split():
-                    if part.startswith("+"):
-                        status["ahead"] = int(part[1:])
-                    elif part.startswith("-"):
-                        status["behind"] = int(part[1:])
-            elif line.startswith("1 ") or line.startswith("2 "):
-                # 修改的文件
-                parts = line.split()
-                if len(parts) >= 9:
-                    status["modified"].append(parts[8])
-            elif line.startswith("? "):
-                # 未跟踪的文件
-                parts = line.split()
-                if len(parts) >= 2:
-                    status["untracked"].append(parts[1])
+        # -z 输出以 NUL 字符分隔记录；普通记录的最后一个固定字段
+        # 是完整路径，不能使用无上限 split()。
+        chunks = result.stdout.split("\0")
+        index = 0
+        while index < len(chunks):
+            chunk = chunks[index]
+            for line in chunk.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith("# branch.head"):
+                    status["branch"] = line.split("	")[1] if "	" in line else ""
+                elif line.startswith("# branch.ab"):
+                    # 解析 ahead/behind
+                    parts = line.split("	")[1] if "	" in line else ""
+                    for part in parts.split():
+                        if part.startswith("+"):
+                            status["ahead"] = int(part[1:])
+                        elif part.startswith("-"):
+                            status["behind"] = int(part[1:])
+                elif line.startswith("1 "):
+                    parts = line.split(" ", 8)
+                    if len(parts) == 9:
+                        self._append_status_path(status, parts[1], parts[8])
+                elif line.startswith("2 "):
+                    parts = line.split(" ", 9)
+                    if len(parts) == 10:
+                        self._append_status_path(status, parts[1], parts[9])
+                        # type 2 的下一 NUL 字段是原路径；当前状态 API
+                        # 只报告目标路径，因此显式消费它。
+                        index += 1
+                elif line.startswith("? "):
+                    # 未跟踪的文件（-z 模式下路径直接跟在 ? 后面，无引号）
+                    path = line[2:]
+                    if path:
+                        status["untracked"].append(path)
+            index += 1
 
         return status
 
+    @staticmethod
+    def _append_status_path(status: dict[str, Any], xy: str, path: str) -> None:
+        if "D" in xy:
+            status["deleted"].append(path)
+        elif "A" in xy:
+            status["added"].append(path)
+        else:
+            status["modified"].append(path)
+
+    def get_staged_blobs(self) -> list[tuple[str, bytes]]:
+        """读取 Git index 中实际将提交的文件内容。"""
+        names = self._run_git(["diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"])
+        blobs: list[tuple[str, bytes]] = []
+        for path in (item for item in names.stdout.split("\0") if item):
+            try:
+                result = subprocess.run(
+                    ["git", "show", f":{path}"],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    timeout=60,
+                )
+            except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+                raise GitError(f"无法读取暂存区文件: {path}") from exc
+            if result.returncode != 0:
+                raise GitError(f"无法读取暂存区文件: {path}")
+            blobs.append((path, result.stdout))
+        return blobs
+
     def get_diff_summary(self, staged: bool = False) -> list[dict[str, str]]:
-        """获取差异摘要"""
-        args = ["diff", "--name-status"]
+        """获取差异摘要
+
+        使用 -z 标志获取 NUL 分隔的输出，避免中文路径、空格路径
+        在 Windows 上被 C-style 转义的问题。
+        """
+        args = ["diff", "--name-status", "-z"]
         if staged:
             args.append("--staged")
 
@@ -316,18 +391,24 @@ class GitOps:
         if result.returncode != 0:
             return []
 
-        files = []
-        for line in result.stdout.strip().split("\n"):
-            if not line:
+        files: list[dict[str, str]] = []
+        # -z 模式下输出以 NUL 分隔，每条格式为 STATUS + NUL + PATH
+        nul = chr(0)
+        entries = result.stdout.split(nul)
+        i = 0
+        while i < len(entries):
+            entry = entries[i].strip()
+            if not entry:
+                i += 1
                 continue
-            parts = line.split("\t")
-            if len(parts) >= 2:
-                files.append(
-                    {
-                        "status": parts[0],
-                        "path": parts[1],
-                    }
-                )
+            # status code 在最后一行的开头（可能有换行符前缀）
+            status_code = entry.splitlines()[-1].strip()
+            if status_code and i + 1 < len(entries):
+                path = entries[i + 1]
+                files.append({"status": status_code, "path": path})
+                i += 2
+            else:
+                i += 1
 
         return files
 

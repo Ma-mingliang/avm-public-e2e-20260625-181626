@@ -142,13 +142,57 @@ class TestCheckpoint:
         assert any("不是 Git 仓库" in s["message"] for s in result["steps"])
 
     def test_checkpoint_version_dir_excluded(self, project_with_lock):
-        """测试版本管理目录下的文件被排除"""
+        """测试版本管理目录下的文件被排除，其他文件正常提交"""
+        # 创建版本管理目录下的文件（应被排除）
         version_dir = project_with_lock / "版本管理"
         version_dir.mkdir(parents=True, exist_ok=True)
         (version_dir / "test.txt").write_text("data", encoding="utf-8")
 
+        # 创建普通文件（应被提交）
+        (project_with_lock / "normal_file.txt").write_text("normal", encoding="utf-8")
+
         result = _do_checkpoint(project_with_lock, "测试")
         assert result["success"]
+
+        # 验证版本管理目录下的文件没有被提交
+        import subprocess
+
+        log_result = subprocess.run(
+            ["git", "log", "--name-only", "--pretty=format:", "-1"],
+            cwd=project_with_lock,
+            capture_output=True,
+            text=True,
+        )
+        committed_files = log_result.stdout.strip()
+        assert "版本管理" not in committed_files, f"版本管理目录下的文件不应被提交，但发现: {committed_files}"
+        assert "normal_file.txt" in committed_files
+
+    def test_checkpoint_chinese_path_excluded(self, project_with_lock):
+        """测试中文路径的版本管理目录文件被正确排除"""
+        # 创建中文路径的版本管理目录
+        version_dir = project_with_lock / "版本管理"
+        version_dir.mkdir(parents=True, exist_ok=True)
+        (version_dir / "中文配置.txt").write_text("config data", encoding="utf-8")
+
+        # 创建中文路径的普通文件
+        (project_with_lock / "中文文件.txt").write_text("content", encoding="utf-8")
+
+        result = _do_checkpoint(project_with_lock, "中文路径测试")
+        assert result["success"]
+
+        import subprocess
+
+        # 使用 git diff --name-only -z 检查最新提交包含的文件
+        # HEAD~1..HEAD 获取最新提交的文件列表
+        log_result = subprocess.run(
+            ["git", "diff", "--name-only", "-z", "HEAD~1..HEAD"],
+            cwd=project_with_lock,
+            capture_output=True,
+            text=True,
+        )
+        committed_files = log_result.stdout
+        assert "版本管理" not in committed_files
+        assert "中文文件.txt" in committed_files
 
     def test_checkpoint_run_json_error(self, tmp_path, capsys):
         """测试 run_checkpoint JSON 错误输出"""

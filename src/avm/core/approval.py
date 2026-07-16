@@ -7,8 +7,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from ..exceptions import ApprovalError, ApprovalExpiredError, ScopeExpansionError
-from ..models import ApprovalRecord, ApprovalType, TaskLock
+from ..exceptions import ApprovalError, ApprovalExpiredError, ApprovalKeyUnavailableError, ScopeExpansionError
+from ..models import ApprovalRecord, ApprovalType, TaskLock, TaskStatus
 from .hashing import compute_hmac_signature, generate_random_key, verify_hmac_signature
 from .io import atomic_write_json, read_json
 from .paths import get_version_dir
@@ -34,6 +34,7 @@ class ApprovalManager:
         """获取签名密钥
 
         优先从环境变量获取，其次从 keyring 获取，最后生成并存储。
+        所有持久化形式均为 hex，运行时统一返回原始字节。
         返回 bytes 类型。
         """
         import os
@@ -41,7 +42,13 @@ class ApprovalManager:
         # 1. 环境变量
         env_key = os.environ.get("AVM_HMAC_KEY")
         if env_key:
-            return env_key.encode("utf-8") if isinstance(env_key, str) else env_key
+            try:
+                key = bytes.fromhex(env_key)
+            except ValueError as exc:
+                raise ApprovalKeyUnavailableError("AVM_HMAC_KEY 必须是 hex 编码") from exc
+            if len(key) < 32:
+                raise ApprovalKeyUnavailableError("AVM_HMAC_KEY 至少需要 32 字节")
+            return key
 
         # 2. keyring (Windows Credential Manager)
         try:
@@ -49,19 +56,22 @@ class ApprovalManager:
 
             stored = keyring.get_password(CREDENTIAL_SERVICE, "hmac-signing-key")
             if stored:
-                return stored.encode("utf-8") if isinstance(stored, str) else stored
+                try:
+                    key = bytes.fromhex(stored)
+                except ValueError as exc:
+                    raise ApprovalKeyUnavailableError("keyring 中的审批密钥格式无效") from exc
+                if len(key) < 32:
+                    raise ApprovalKeyUnavailableError("keyring 中的审批密钥长度不足")
+                return key
 
             # 生成新密钥并存储
             key = generate_random_key()
             keyring.set_password(CREDENTIAL_SERVICE, "hmac-signing-key", key.hex())
             return key
-        except Exception:
-            # keyring 不可用时，使用基于机器的确定性密钥
-            import hashlib
-            import platform
-
-            machine_id = f"{platform.node()}-{platform.machine()}"
-            return hashlib.sha256(f"avm-fallback-{machine_id}".encode()).digest()
+        except ApprovalKeyUnavailableError:
+            raise
+        except Exception as exc:
+            raise ApprovalKeyUnavailableError("审批签名密钥不可用") from exc
 
     def create_approval(
         self,
@@ -90,6 +100,7 @@ class ApprovalManager:
 
         # 构建审批内容
         content = {
+            "task_id": task_lock.task_id,
             "version": task_lock.version,
             "agent": task_lock.agent.value if hasattr(task_lock.agent, "value") else str(task_lock.agent),
             "approval_type": approval_type.value if hasattr(approval_type, "value") else str(approval_type),
@@ -128,6 +139,7 @@ class ApprovalManager:
         task_lock: TaskLock,
         actual_files: list[str] | None = None,
         actual_content_hash: str = "",
+        expected_type: ApprovalType | None = None,
     ) -> bool:
         """验证审批有效性
 
@@ -148,9 +160,25 @@ class ApprovalManager:
         if record is None:
             raise ApprovalError("未找到审批记录")
 
+        if record.task_id != task_lock.task_id:
+            raise ApprovalError(f"审批任务不匹配: {record.task_id} != {task_lock.task_id}")
+
         # 检查版本匹配
         if record.version != task_lock.version:
             raise ApprovalError(f"审批版本不匹配: {record.version} != {task_lock.version}")
+
+        final_states = {
+            TaskStatus.PR_READY,
+            TaskStatus.MERGING,
+            TaskStatus.TAGGING,
+            TaskStatus.RELEASING,
+            TaskStatus.PUBLISH_INCOMPLETE,
+        }
+        required_type = expected_type
+        if required_type is None and task_lock.status in final_states:
+            required_type = ApprovalType.FINAL_RELEASE
+        if required_type is not None and record.approval_type != required_type:
+            raise ApprovalError(f"审批类型不匹配: {record.approval_type.value} != {required_type.value}")
 
         # 检查过期
         if record.is_expired():
@@ -159,6 +187,7 @@ class ApprovalManager:
         # 验证签名
         key = self._get_signing_key()
         content = {
+            "task_id": record.task_id,
             "version": record.version,
             "agent": task_lock.agent.value if hasattr(task_lock.agent, "value") else str(task_lock.agent),
             "approval_type": (
@@ -251,8 +280,8 @@ class ApprovalManager:
 
         try:
             return ApprovalRecord(**data)
-        except Exception:
-            return None
+        except Exception as exc:
+            raise ApprovalError(f"审批记录损坏: {task_id}") from exc
 
     def _load_all_approvals(self) -> dict[str, Any]:
         """加载所有审批记录"""
@@ -260,9 +289,12 @@ class ApprovalManager:
             return {}
 
         try:
-            return read_json(self.approval_path)
-        except Exception:
-            return {}
+            approvals = read_json(self.approval_path)
+        except Exception as exc:
+            raise ApprovalError("审批记录损坏，拒绝继续") from exc
+        if not isinstance(approvals, dict):
+            raise ApprovalError("审批记录损坏，根节点必须是对象")
+        return approvals
 
     def get_approval_info(self, task_id: str) -> dict[str, Any] | None:
         """获取审批信息"""

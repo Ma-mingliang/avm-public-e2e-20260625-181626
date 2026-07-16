@@ -107,6 +107,8 @@ class BackupManager:
 
         # 创建备份记录
         record = {
+            "schema_version": 2,
+            "kind": "file" if source.is_file() else "directory",
             "backup_name": backup_name,
             "version": version,
             "source_path": str(source),
@@ -169,7 +171,7 @@ class BackupManager:
         if record is None:
             raise BackupError(f"备份不存在: {backup_name}")
 
-        source_path = Path(record["backup_path"])
+        source_path = self._contained_backup_path(Path(record["backup_path"]))
         if not source_path.exists():
             raise BackupError(f"备份文件已丢失: {source_path}")
 
@@ -181,38 +183,48 @@ class BackupManager:
 
         import tempfile
 
-        # 2. 恢复到临时目录
-        tmp_dir = Path(tempfile.mkdtemp(prefix="avm_restore_"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # 临时对象必须和目标同卷，目录改名才能作为事务边界。
+        tmp_dir = Path(tempfile.mkdtemp(prefix=".avm_restore_", dir=target.parent))
         try:
-            if source_path.is_dir():
+            kind = record.get("kind")
+            if kind is None:
+                # 旧索引只能维持原语义；新索引显式区分单文件目录。
+                kind = "file" if len(record.get("files", [])) == 1 else "directory"
+            if kind == "file":
                 files = record.get("files", [])
-                if len(files) == 1:
-                    # 单文件备份
-                    source_file = source_path / files[0]["path"]
-                    tmp_target = tmp_dir / "restored"
-                    self._restore_file(source_file, tmp_target)
-                    # 3. 校验临时文件 SHA-256
-                    self._verify_restore(record, tmp_target)
-                    # 4. 原子替换目标
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    os.replace(str(tmp_target), str(target))
-                else:
-                    # 多文件备份
-                    tmp_target = tmp_dir / "restored"
-                    shutil.copytree(source_path, tmp_target, copy_function=self._copy_file)
-                    # 3. 校验临时目录 SHA-256
-                    self._verify_restore(record, tmp_target)
-                    # 4. 原子替换目标
-                    if target.exists():
-                        shutil.rmtree(target)
-                    shutil.move(str(tmp_target), str(target))
-            elif source_path.is_file():
-                # 兼容旧格式（单文件备份）
+                source_file = source_path / files[0]["path"] if source_path.is_dir() else source_path
                 tmp_target = tmp_dir / "restored"
-                self._restore_file(source_path, tmp_target)
+                self._restore_file(source_file, tmp_target)
                 self._verify_restore(record, tmp_target)
-                target.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(str(tmp_target), str(target))
+            elif kind == "directory":
+                tmp_target = tmp_dir / "restored"
+                shutil.copytree(source_path, tmp_target, copy_function=self._copy_file)
+                self._verify_restore(record, tmp_target)
+                old_target = target.parent / f".{target.name}.avm-old"
+                if old_target.exists():
+                    if old_target.is_dir():
+                        shutil.rmtree(old_target)
+                    else:
+                        old_target.unlink()
+                moved_old = False
+                try:
+                    if target.exists():
+                        os.replace(target, old_target)
+                        moved_old = True
+                    os.replace(tmp_target, target)
+                except Exception:
+                    if moved_old and old_target.exists() and not target.exists():
+                        os.replace(old_target, target)
+                    raise
+                if old_target.exists():
+                    if old_target.is_dir():
+                        shutil.rmtree(old_target)
+                    else:
+                        old_target.unlink()
+            else:
+                raise BackupError(f"未知备份类型: {kind}")
         except BackupError:
             raise
         except Exception as e:
@@ -248,7 +260,10 @@ class BackupManager:
         if record is None:
             raise BackupError(f"备份不存在: {backup_name}")
 
-        backup_path = Path(record["backup_path"])
+        try:
+            backup_path = self._contained_backup_path(Path(record["backup_path"]))
+        except BackupError:
+            return False
         if not backup_path.exists():
             return False
 
@@ -262,6 +277,13 @@ class BackupManager:
                 return False
 
         return True
+
+    def _contained_backup_path(self, candidate: Path) -> Path:
+        root = self.backup_dir.resolve()
+        resolved = candidate.resolve()
+        if resolved != root and root not in resolved.parents:
+            raise BackupError(f"备份路径超出备份根目录: {candidate}")
+        return resolved
 
     def delete_backup(self, backup_name: str) -> bool:
         """删除备份
@@ -285,7 +307,7 @@ class BackupManager:
             return False
 
         # 删除备份文件
-        backup_path = Path(record["backup_path"])
+        backup_path = self._contained_backup_path(Path(record["backup_path"]))
         if backup_path.exists():
             if backup_path.is_file():
                 backup_path.unlink()

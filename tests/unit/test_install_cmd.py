@@ -83,6 +83,7 @@ class TestRunUpdateCheck:
         """测试 JSON 输出"""
         mock_installer = MagicMock()
         mock_installer.get_current_version.return_value = "0.9.0"
+        mock_installer.get_latest_version.return_value = "1.0.0"
         mock_installer_cls.return_value = mock_installer
 
         run_update_check(json_output=True)
@@ -90,6 +91,18 @@ class TestRunUpdateCheck:
         captured = capsys.readouterr()
         data = json.loads(captured.out)
         assert "current_version" in data
+
+    @patch("avm.commands.update.Installer")
+    def test_update_check_network_failure_reports_unknown(self, mock_installer_cls, capsys):
+        mock_installer = MagicMock()
+        mock_installer.get_current_version.return_value = "0.9.0"
+        mock_installer.get_latest_version.side_effect = RuntimeError("network")
+        mock_installer_cls.return_value = mock_installer
+
+        assert run_update_check(json_output=True) is False
+        data = json.loads(capsys.readouterr().out)
+        assert data["has_update"] is None
+        assert data["status"] == "unknown"
 
 
 class TestRunUpdate:

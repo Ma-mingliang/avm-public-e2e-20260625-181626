@@ -209,3 +209,122 @@ class TestGetUncommittedChanges:
         ops.stage_files(["new.txt"])
         changes = ops.get_uncommitted_changes()
         assert changes["has_changes"] is True
+
+
+class TestNulSafeChinesePath:
+    """NUL 安全的中文路径测试
+
+    验证 get_status 和 get_diff_summary 使用 -z 标志后，
+    中文路径不会被 C-style 转义，能正确返回原始 UTF-8 路径。
+    """
+
+    def test_get_status_chinese_untracked(self, git_repo):
+        """测试 get_status 正确返回中文未跟踪文件路径"""
+        ops = GitOps(git_repo)
+        # 创建中文命名的文件
+        (git_repo / "测试文件.txt").write_text("test", encoding="utf-8")
+
+        status = ops.get_status()
+        assert "测试文件.txt" in status["untracked"]
+
+    def test_get_status_chinese_modified(self, git_repo):
+        """测试 get_status 正确返回中文已修改文件路径"""
+        ops = GitOps(git_repo)
+        # 创建中文文件并提交
+        (git_repo / "修改测试.txt").write_text("initial", encoding="utf-8")
+        ops.stage_files(["修改测试.txt"])
+        ops.commit("add chinese file")
+
+        # 修改文件
+        (git_repo / "修改测试.txt").write_text("modified", encoding="utf-8")
+        status = ops.get_status()
+        assert "修改测试.txt" in status["modified"]
+
+    def test_get_status_chinese_dir_untracked(self, git_repo):
+        """测试 get_status 正确返回中文目录下的未跟踪文件路径"""
+        ops = GitOps(git_repo)
+        # 创建中文目录和文件
+        version_dir = git_repo / "版本管理"
+        version_dir.mkdir()
+        (version_dir / "config.txt").write_text("data", encoding="utf-8")
+
+        status = ops.get_status()
+        # 文件应该以中文目录路径出现
+        untracked = status["untracked"]
+        assert any("版本管理" in p for p in untracked)
+
+    def test_get_status_space_in_path(self, git_repo):
+        """测试 get_status 正确处理路径中有空格的文件"""
+        ops = GitOps(git_repo)
+        (git_repo / "file with spaces.txt").write_text("test", encoding="utf-8")
+
+        status = ops.get_status()
+        assert "file with spaces.txt" in status["untracked"]
+
+    def test_get_status_preserves_tracked_space_path(self, git_repo):
+        ops = GitOps(git_repo)
+        path = git_repo / "my secret.txt"
+        path.write_text("safe", encoding="utf-8")
+        ops.stage_files([path.name])
+        ops.commit("add spaced file")
+        path.write_text("changed", encoding="utf-8")
+
+        assert "my secret.txt" in ops.get_status()["modified"]
+
+    def test_diff_summary_chinese_path(self, git_repo):
+        """测试 get_diff_summary 正确返回中文文件路径"""
+        ops = GitOps(git_repo)
+        # 创建中文文件并提交
+        (git_repo / "差异测试.txt").write_text("initial", encoding="utf-8")
+        ops.stage_files(["差异测试.txt"])
+        ops.commit("add file")
+
+        # 修改文件
+        (git_repo / "差异测试.txt").write_text("modified", encoding="utf-8")
+        diff = ops.get_diff_summary(staged=False)
+        assert len(diff) > 0
+        assert any(d["path"] == "差异测试.txt" for d in diff)
+
+    def test_diff_summary_staged_chinese_path(self, git_repo):
+        """测试 get_diff_summary staged 模式正确返回中文文件路径"""
+        ops = GitOps(git_repo)
+        # 创建中文文件并提交（使其成为 tracked）
+        (git_repo / "暂存测试.txt").write_text("initial", encoding="utf-8")
+        ops.stage_files(["暂存测试.txt"])
+        ops.commit("add file")
+
+        # 修改 tracked 文件并暂存
+        (git_repo / "暂存测试.txt").write_text("modified", encoding="utf-8")
+        ops.stage_files(["暂存测试.txt"])
+
+        diff = ops.get_diff_summary(staged=True)
+        assert len(diff) > 0
+        assert any(d["path"] == "暂存测试.txt" for d in diff)
+
+    def test_get_status_no_c_style_quoting(self, git_repo):
+        """验证 -z 模式下路径不包含 C-style 转义字符"""
+        ops = GitOps(git_repo)
+        (git_repo / "测试文件.txt").write_text("test", encoding="utf-8")
+
+        status = ops.get_status()
+        for path in status["untracked"]:
+            # 路径不应包含反斜杠转义序列（如 æ）
+            assert "\\" not in path, f"Path contains C-style escaping: {path}"
+
+    def test_get_status_chinese_path_is_actual_utf8(self, git_repo):
+        """验证返回的中文路径是正确的 UTF-8 字符串"""
+        ops = GitOps(git_repo)
+        chinese_name = "中文文件名测试.txt"
+        (git_repo / chinese_name).write_text("test", encoding="utf-8")
+
+        status = ops.get_status()
+        assert chinese_name in status["untracked"]
+        # 验证是正确的 Unicode 字符，不是字节序列
+        for path in status["untracked"]:
+            assert isinstance(path, str)
+            # 中文字符的 ord 值应该在 CJK 范围内
+            for char in path:
+                if ord(char) > 127:
+                    assert 0x4E00 <= ord(char) <= 0x9FFF or 0x3000 <= ord(char) <= 0x303F, (
+                        f"Unexpected non-ASCII char: {char!r} (U+{ord(char):04X})"
+                    )

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from avm.core.backup import BackupManager
+from avm.core.io import atomic_write_json
 from avm.exceptions import BackupError
 
 
@@ -181,3 +182,54 @@ class TestBackupManager:
 
         assert len(manager.list_backups()) == 3
         assert len(manager.list_backups(version="v2")) == 1
+
+    def test_single_file_directory_restores_as_directory(self, temp_project, tmp_path):
+        source = tmp_path / "single-dir"
+        source.mkdir()
+        (source / "only.txt").write_text("payload", encoding="utf-8")
+        manager = BackupManager(temp_project)
+        record = manager.create_backup(source, "v1")
+
+        target = manager.restore_backup(record["backup_name"], tmp_path / "restored-dir")
+
+        assert target.is_dir()
+        assert (target / "only.txt").read_text(encoding="utf-8") == "payload"
+
+    def test_backup_index_path_cannot_escape_backup_root(self, temp_project, tmp_path):
+        manager = BackupManager(temp_project)
+        manager.ensure_dirs()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "payload.txt").write_text("payload", encoding="utf-8")
+        atomic_write_json(
+            manager.backup_index_path,
+            {
+                "backups": [
+                    {
+                        "backup_name": "evil",
+                        "backup_path": str(outside),
+                        "source_path": str(tmp_path / "target"),
+                        "kind": "directory",
+                        "files": [],
+                    }
+                ]
+            },
+        )
+
+        with pytest.raises(BackupError, match="备份根目录"):
+            manager.restore_backup("evil")
+
+    def test_delete_backup_cannot_escape_backup_root(self, temp_project, tmp_path):
+        manager = BackupManager(temp_project)
+        manager.ensure_dirs()
+        outside = tmp_path / "outside-delete"
+        outside.mkdir()
+        (outside / "keep.txt").write_text("keep", encoding="utf-8")
+        atomic_write_json(
+            manager.backup_index_path,
+            {"backups": [{"backup_name": "evil-delete", "backup_path": str(outside)}]},
+        )
+
+        with pytest.raises(BackupError, match="备份根目录"):
+            manager.delete_backup("evil-delete")
+        assert (outside / "keep.txt").is_file()

@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..core.io import atomic_write_json, read_json
-from ..core.paths import get_task_lock_path
 from ..exceptions import AVMError
 from ..models import TaskLock, TaskStatus
+from .task_store import TaskStore
 
 # 合法状态转换矩阵
 VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
@@ -22,7 +21,7 @@ VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     },
     TaskStatus.VALIDATING: {TaskStatus.REVIEW_MATERIAL_READY, TaskStatus.FIXING, TaskStatus.DRAFT_PR},
     TaskStatus.FIXING: {TaskStatus.VALIDATING},
-    TaskStatus.DRAFT_PR: {TaskStatus.VALIDATING, TaskStatus.FIXING},
+    TaskStatus.DRAFT_PR: {TaskStatus.VALIDATING, TaskStatus.FIXING, TaskStatus.PR_READY},
     TaskStatus.REVIEW_MATERIAL_READY: {TaskStatus.WAIT_FINAL_APPROVAL},
     TaskStatus.WAIT_FINAL_APPROVAL: {TaskStatus.PR_READY, TaskStatus.IDLE},
     TaskStatus.PR_READY: {TaskStatus.MERGING},
@@ -73,26 +72,27 @@ class StateMachine:
 
     def __init__(self, project_root: Path):
         self.project_root = project_root
-        self._lock_path = get_task_lock_path(project_root)
+        self._store = TaskStore(project_root)
         self._task_lock: TaskLock | None = None
+        self._persisted: TaskLock | None = None
 
     def load(self) -> TaskLock:
         """加载任务锁"""
-        if self._lock_path.exists():
-            try:
-                data = read_json(self._lock_path)
-                self._task_lock = TaskLock(**data)
-            except Exception:
-                self._task_lock = TaskLock(status=TaskStatus.IDLE)
-        else:
-            self._task_lock = TaskLock(status=TaskStatus.IDLE)
+        persisted = self._store.read()
+        self._persisted = persisted.model_copy(deep=True) if persisted is not None else None
+        self._task_lock = persisted or TaskLock(status=TaskStatus.IDLE)
         return self._task_lock
 
     def save(self) -> None:
         """保存任务锁"""
         if self._task_lock is None:
             return
-        atomic_write_json(self._lock_path, self._task_lock.model_dump())
+        if self._persisted is None:
+            saved = self._store.create(self._task_lock)
+        else:
+            saved = self._store.compare_and_write(self._persisted, self._task_lock)
+        self._task_lock = saved
+        self._persisted = saved.model_copy(deep=True)
 
     @property
     def current_status(self) -> TaskStatus:
@@ -138,9 +138,6 @@ class StateMachine:
                 f"非法状态转换: {self.current_status.value} -> {new_status.value}",
                 exit_code=2,
             )
-
-        if self._task_lock is None:
-            self.load()
 
         assert self._task_lock is not None
 
@@ -195,7 +192,11 @@ class StateMachine:
 
     def reset(self) -> None:
         """重置状态机到IDLE"""
+        if self._task_lock is None:
+            self.load()
+        task_id = self._task_lock.task_id if self._task_lock is not None else TaskLock().task_id
         self._task_lock = TaskLock(status=TaskStatus.IDLE)
+        self._task_lock.task_id = task_id
         self.save()
 
     def create_task(

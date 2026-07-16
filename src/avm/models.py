@@ -174,7 +174,8 @@ class ProjectConfig(BaseModel):
 class TaskLock(BaseModel):
     """任务锁"""
 
-    schema_version: int = 1
+    schema_version: int = 2
+    revision: int = 0
     task_id: str = Field(default_factory=lambda: str(uuid4()))
     status: TaskStatus = TaskStatus.IDLE
     previous_status: TaskStatus | None = None  # 进入错误状态前的状态
@@ -186,6 +187,11 @@ class TaskLock(BaseModel):
     expected_files: list[str] = Field(default_factory=list)
     remote_lock_ref: str | None = "refs/heads/avm/system-lock"
     approval_id: str | None = None
+    merge_sha: str = ""  # merge commit SHA
+    manifest_hash: str = ""  # release manifest 内容哈希
+    pr_number: int | None = None  # PR 编号
+    release_url: str = ""  # GitHub Release URL
+    published_at: str = ""  # 发布时间
 
 
 class ApprovalRecord(BaseModel):

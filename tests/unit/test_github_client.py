@@ -209,3 +209,98 @@ class TestGitHubClient:
 
         assert info["name"] == "testrepo"
         assert info["isPrivate"] is True
+
+
+class TestMergePullRequestSHA:
+    def test_merge_returns_merge_sha(self, mock_gh):
+        mock_merge = MagicMock(returncode=0, stdout="")
+        mock_pr_view = MagicMock(returncode=0, stdout=json.dumps({"mergeCommit": {"oid": "abc123def456"}}))
+
+        def side_effect(*args, **kwargs):
+            call_args = args[0] if args else kwargs.get("args", [])
+            if "view" in call_args:
+                return mock_pr_view
+            return mock_merge
+
+        mock_gh.side_effect = side_effect
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        result = client.merge_pull_request(1)
+        assert result["merged"] is True
+        assert result["merge_commit_sha"] == "abc123def456"
+
+    def test_merge_sha_fallback(self, mock_gh):
+        mock_merge = MagicMock(returncode=0, stdout="")
+        mock_pr_view = MagicMock(returncode=1, stdout="")
+
+        def side_effect(*args, **kwargs):
+            call_args = args[0] if args else kwargs.get("args", [])
+            if "view" in call_args:
+                return mock_pr_view
+            return mock_merge
+
+        mock_gh.side_effect = side_effect
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        result = client.merge_pull_request(1)
+        assert result["merge_commit_sha"] == ""
+
+
+class TestNewMethods:
+    def test_get_commit_sha(self, mock_gh):
+        mock_gh.return_value = MagicMock(returncode=0, stdout=json.dumps({"sha": "abc123"}))
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.get_commit_sha("abc123") == "abc123"
+
+    def test_get_commit_sha_not_found(self, mock_gh):
+        mock_gh.return_value = MagicMock(returncode=1, stdout="", stderr="Not Found")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.get_commit_sha("nonexistent") is None
+
+    def test_get_commit_sha_exception(self, mock_gh):
+        mock_gh.side_effect = Exception("network error")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.get_commit_sha("abc123") is None
+
+    def test_tag_exists(self, mock_gh):
+        mock_gh.return_value = MagicMock(returncode=0, stdout="{}")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.tag_exists("v1") is True
+
+    def test_tag_not_exists(self, mock_gh):
+        mock_gh.return_value = MagicMock(returncode=1, stderr="Not Found")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.tag_exists("v999") is False
+
+    def test_tag_exists_exception(self, mock_gh):
+        mock_gh.side_effect = Exception("error")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.tag_exists("v1") is False
+
+    def test_release_exists(self, mock_gh):
+        mock_gh.return_value = MagicMock(returncode=0, stdout="{}")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.release_exists("v1") is True
+
+    def test_release_not_exists(self, mock_gh):
+        mock_gh.return_value = MagicMock(returncode=1, stderr="Not Found")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.release_exists("v999") is False
+
+    def test_release_exists_exception(self, mock_gh):
+        mock_gh.side_effect = Exception("error")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.release_exists("v1") is False
+
+    def test_delete_branch(self, mock_gh):
+        mock_gh.return_value = MagicMock(returncode=0, stdout="")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.delete_branch("feature") is True
+
+    def test_delete_branch_failure(self, mock_gh):
+        mock_gh.return_value = MagicMock(returncode=1, stderr="Not Found")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.delete_branch("feature") is False
+
+    def test_delete_branch_exception(self, mock_gh):
+        mock_gh.side_effect = Exception("error")
+        client = GitHubClient(repo_owner="testuser", repo_name="testrepo")
+        assert client.delete_branch("feature") is False

@@ -1,5 +1,6 @@
 """AVM hook 命令测试"""
 
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -44,6 +45,20 @@ class TestRunHookPreCommit:
         mock_git_cls.return_value = mock_git
 
         assert run_hook_pre_commit(project_dir) is True
+
+    def test_pre_commit_scans_staged_blob_not_safe_worktree(self, tmp_path):
+        subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.name", "Tester"], cwd=tmp_path, check=True)
+        path = tmp_path / "token.txt"
+        path.write_text("safe", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+        subprocess.run(["git", "commit", "-m", "base"], cwd=tmp_path, check=True, capture_output=True)
+        path.write_text("api_key=ABCDEFGHIJKLMNOPQRSTUVWXYZ123456", encoding="utf-8")
+        subprocess.run(["git", "add", "token.txt"], cwd=tmp_path, check=True)
+        path.write_text("safe worktree", encoding="utf-8")
+
+        assert run_hook_pre_commit(tmp_path) is False
 
     @patch("avm.commands.hook.GitOps")
     @patch("avm.commands.hook.StateMachine")

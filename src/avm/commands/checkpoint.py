@@ -8,6 +8,7 @@ from typing import Any
 
 from rich.console import Console
 
+from ..config import PROJECT_CONFIG_DIR
 from ..core.locking import TaskLocker
 from ..core.state_machine import StateMachine
 from ..git.ops import GitOps
@@ -128,19 +129,12 @@ def _do_checkpoint(project_path: Path, message: str) -> dict[str, Any]:
         # 暂存所有修改（排除版本管理目录）
         all_files = status.get("modified", []) + status.get("untracked", [])
         # 排除版本管理目录下的文件（通过检查路径组件）
-        version_dir_name = "版本管理"
+        version_dir = PROJECT_CONFIG_DIR
         files_to_stage = []
         for f in all_files:
-            # 解码 git 的引号格式
-            decoded = f
-            if f.startswith('"') and f.endswith('"'):
-                try:
-                    decoded = f[1:-1].encode().decode("unicode_escape")
-                except Exception:
-                    decoded = f[1:-1]
-            # 检查是否在版本管理目录下
-            parts = Path(decoded).parts
-            if version_dir_name not in parts:
+            # get_status 使用 -z 标志，路径已是正确的 UTF-8
+            parts = Path(f).parts
+            if version_dir not in parts:
                 files_to_stage.append(f)
 
         if files_to_stage:

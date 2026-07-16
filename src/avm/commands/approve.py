@@ -9,6 +9,7 @@ from typing import Any
 
 from rich.console import Console
 
+from ..config import PROJECT_CONFIG_DIR
 from ..core.approval import ApprovalManager
 from ..core.hashing import compute_approval_hash, compute_file_sha256, compute_string_sha256
 from ..core.locking import TaskLocker
@@ -52,7 +53,11 @@ def run_approve(
     task_lock = sm.task_lock
 
     # 2. 检查是否需要审批
-    if current not in (TaskStatus.WAIT_START_APPROVAL, TaskStatus.WAIT_FINAL_APPROVAL):
+    if current not in (
+        TaskStatus.WAIT_START_APPROVAL,
+        TaskStatus.WAIT_FINAL_APPROVAL,
+        TaskStatus.REVIEW_MATERIAL_READY,
+    ):
         result["steps"].append(
             {
                 "step": "check_state",
@@ -78,6 +83,30 @@ def run_approve(
     if current == TaskStatus.WAIT_START_APPROVAL:
         approval_type = ApprovalType.START
         next_status = TaskStatus.RESERVED
+    elif current == TaskStatus.REVIEW_MATERIAL_READY:
+        # REVIEW_MATERIAL_READY -> WAIT_FINAL_APPROVAL -> PR_READY
+        # Step 3a: transition to WAIT_FINAL_APPROVAL first
+        try:
+            sm.transition(TaskStatus.WAIT_FINAL_APPROVAL)
+            result["steps"].append(
+                {
+                    "step": "state_transition",
+                    "status": "ok",
+                    "message": "状态已转换为 WAIT_FINAL_APPROVAL",
+                }
+            )
+        except Exception as e:
+            result["steps"].append(
+                {
+                    "step": "state_transition",
+                    "status": "error",
+                    "message": f"状态转换失败: {e}",
+                }
+            )
+            _output(result, json_output)
+            return False
+        approval_type = ApprovalType.FINAL_RELEASE
+        next_status = TaskStatus.PR_READY
     else:
         approval_type = ApprovalType.FINAL_RELEASE
         next_status = TaskStatus.PR_READY
@@ -174,7 +203,7 @@ def run_approve(
     return True
 
 
-def _compute_content_hash(project_path: Path, task_lock: Any) -> str:
+def _compute_content_hash(project_path: Path, task_lock: Any, git: GitOps | None = None) -> str:
     """计算内容哈希，绑定 base_commit、文件 SHA-256、配置
 
     Args:
@@ -187,7 +216,12 @@ def _compute_content_hash(project_path: Path, task_lock: Any) -> str:
     Raises:
         RuntimeError: 当无法获取文件列表或计算哈希时
     """
-    git = GitOps(project_path)
+    git = git or GitOps(project_path)
+
+    # 审批必须绑定已提交事实。即使工作区干净，HEAD 或 tree 改变也
+    # 必须改变审批哈希，防止审批后追加提交仍沿用旧授权。
+    head_sha = git.get_head_sha()
+    tree_sha = git.get_tree_sha(head_sha)
 
     # 获取暂存区和已修改文件
     try:
@@ -196,9 +230,13 @@ def _compute_content_hash(project_path: Path, task_lock: Any) -> str:
     except Exception:
         tracked_files = []
 
-    # 计算文件清单哈希
+    # 计算文件清单哈希（排除版本管理目录，避免 AVM 过程中的修改影响哈希）
     file_manifest = []
     for f in tracked_files:
+        # 跳过版本管理目录下的文件
+        parts = Path(f).parts
+        if parts and parts[0] == PROJECT_CONFIG_DIR:
+            continue
         file_path = project_path / f
         if file_path.exists() and file_path.is_file():
             sha = compute_file_sha256(file_path)
@@ -217,7 +255,7 @@ def _compute_content_hash(project_path: Path, task_lock: Any) -> str:
 
     # 使用 compute_approval_hash 计算最终哈希
     return compute_approval_hash(
-        base_commit=task_lock.base_commit or "",
+        base_commit=f"{task_lock.base_commit or ''}|{head_sha}|{tree_sha}",
         file_manifest=file_manifest,
         commit_message_hash=compute_string_sha256(task_lock.version or ""),
         pr_body_hash="",
@@ -275,9 +313,11 @@ def _execute_start_transaction(
         locker = TaskLocker(project_path)
         existing_lock = locker.get_lock()
         if existing_lock is not None:
-            # 锁已存在（start 命令创建），更新状态
-            locker.update_lock(status=TaskStatus.RESERVED)
-            result["steps"].append({"step": "acquire_lock", "status": "ok", "message": "本地任务锁已更新为 RESERVED"})
+            # start 已创建同一任务的状态记录。状态只能由当前
+            # StateMachine 的 CAS 在步骤 E 推进，避免双写 revision。
+            if existing_lock.task_id != lock.task_id:
+                raise RuntimeError("本地任务锁已被其他任务占用")
+            result["steps"].append({"step": "acquire_lock", "status": "ok", "message": "本地任务锁已确认"})
         else:
             # 锁不存在，获取新锁
             lock.status = TaskStatus.RESERVED
@@ -287,12 +327,13 @@ def _execute_start_transaction(
         result["steps"].append({"step": "acquire_lock", "status": "error", "message": f"获取本地锁失败: {e}"})
         return False
 
-    # 步骤 C: 远程原子锁（best effort，失败不阻断）
+    # 步骤 C: 远程原子锁。配置了远端仓库后必须失败闭合，
+    # 否则两个工作副本可能同时通过本地锁。
     remote_lock_created = False
     try:
         from ..github.client import GitHubClient
 
-        gh = GitHubClient()
+        gh = GitHubClient(project_root=project_path)
         if gh.repo_owner and gh.repo_name:
             lock_ref = "refs/heads/avm/system-lock"
             remote_lock_created = gh.create_reference(lock_ref, base_commit)
@@ -300,14 +341,21 @@ def _execute_start_transaction(
                 result["steps"].append({"step": "remote_lock", "status": "ok", "message": "远程原子锁已创建"})
             else:
                 result["steps"].append(
-                    {"step": "remote_lock", "status": "warn", "message": "远程锁已存在（可能有其他任务进行中）"}
+                    {"step": "remote_lock", "status": "error", "message": "远程锁不可用（可能有其他任务进行中）"}
                 )
+                locker.release_lock()
+                return False
         else:
             result["steps"].append(
                 {"step": "remote_lock", "status": "warn", "message": "未配置 GitHub 仓库，跳过远程锁"}
             )
     except Exception as e:
-        result["steps"].append({"step": "remote_lock", "status": "warn", "message": f"远程锁创建失败（非阻断）: {e}"})
+        result["steps"].append({"step": "remote_lock", "status": "error", "message": f"远程锁创建失败: {e}"})
+        try:
+            locker.release_lock()
+        except Exception:
+            pass
+        return False
 
     # 步骤 D: 创建分支并切换
     try:
@@ -361,7 +409,7 @@ def _rollback_transaction(
         if remote_lock_created:
             from ..github.client import GitHubClient
 
-            gh = GitHubClient()
+            gh = GitHubClient(project_root=project_path)
             gh.delete_reference("heads/avm/system-lock")
     except Exception:
         pass

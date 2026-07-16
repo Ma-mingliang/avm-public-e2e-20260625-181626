@@ -34,18 +34,24 @@ def run_hook_pre_commit(project_path: Path) -> bool:
         sm = StateMachine(project_path)
         sm.load()
 
-        # 获取暂存区文件
+        # 获取暂存区真实 blob；工作区内容可能已在 git add 后被覆盖。
         git = GitOps(project_path)
-        status = git.get_status()
-        modified = status.get("modified", []) + status.get("added", [])
-
-        if not modified:
-            return True
+        staged_blobs = git.get_staged_blobs()
 
         # 使用安全扫描器（任何状态下都扫描敏感信息）
         config = _load_config(project_path)
         scanner = SecurityScanner(config)
-        scan_result = scanner.scan_files(modified, project_path)
+        if isinstance(staged_blobs, list):
+            if not staged_blobs:
+                return True
+            scan_result = scanner.scan_blobs(staged_blobs)
+        else:
+            # 兼容旧的第三方 GitOps 测试替身；真实 GitOps 总是返回 list。
+            status = git.get_status()
+            modified = status.get("modified", []) + status.get("added", [])
+            if not modified:
+                return True
+            scan_result = scanner.scan_files(modified, project_path)
 
         # 阻止严重问题
         if scan_result["has_critical"]:

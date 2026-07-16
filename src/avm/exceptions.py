@@ -31,12 +31,30 @@ class LockError(AVMError):
         self.lock_holder = lock_holder
 
 
+class StateCorruptionError(AVMError):
+    """持久化任务状态无法可信读取。"""
+
+    def __init__(self, message: str):
+        super().__init__(message, exit_code=2)
+
+
+class StateConflictError(AVMError):
+    """任务状态被其他写入者更新。"""
+
+    def __init__(self, message: str):
+        super().__init__(message, exit_code=2)
+
+
 class VersionError(AVMError):
     """版本操作错误"""
 
 
 class ApprovalError(AVMError):
     """审批错误"""
+
+
+class ApprovalKeyUnavailableError(ApprovalError):
+    """审批签名密钥不可用或格式无效。"""
 
 
 class ApprovalExpiredError(ApprovalError):
@@ -57,6 +75,14 @@ class SecurityError(AVMError):
 
 class BackupError(AVMError):
     """备份操作错误"""
+
+
+class PublishError(AVMError):
+    """发布操作错误"""
+
+
+class PublishConflictError(PublishError):
+    """远端发布对象与预期事实冲突。"""
 
 
 class ValidationError(AVMError):
