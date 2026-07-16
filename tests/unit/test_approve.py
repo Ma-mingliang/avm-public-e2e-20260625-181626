@@ -316,6 +316,7 @@ class TestRunApprove:
         sm = StateMachine(project_dir)
         sm.load()
         assert sm.current_status == TaskStatus.PR_READY
+        assert sm.task_lock.approved_head_sha == _git(project_dir, "rev-parse", "HEAD")
 
     def test_approve_review_material_ready_json_output(self, project_dir, capsys):
         """test: REVIEW_MATERIAL_READY JSON output"""
