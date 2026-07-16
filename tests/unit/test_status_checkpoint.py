@@ -189,6 +189,7 @@ class TestCheckpoint:
             cwd=project_with_lock,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         committed_files = log_result.stdout
         assert "版本管理" not in committed_files
