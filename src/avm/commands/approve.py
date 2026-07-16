@@ -60,6 +60,7 @@ def run_approve(
         TaskStatus.WAIT_START_APPROVAL,
         TaskStatus.WAIT_FINAL_APPROVAL,
         TaskStatus.REVIEW_MATERIAL_READY,
+        TaskStatus.DRAFT_PR,
     ):
         result["steps"].append(
             {

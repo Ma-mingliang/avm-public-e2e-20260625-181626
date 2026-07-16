@@ -20,6 +20,7 @@ from .commands.approve import run_approve
 from .commands.checkpoint import run_checkpoint
 from .commands.preflight import run_preflight
 from .commands.pr import run_create_pr, run_merge
+from .commands.review import run_prepare_review
 from .commands.publish import run_publish
 from .commands.start import run_start
 from .commands.validate import run_validate
@@ -111,7 +112,7 @@ class AVMMCPServer:
     def list_tools(self) -> list[dict[str, Any]]:
         names = [
             "avm_status", "avm_preflight", "avm_start", "avm_approve",
-            "avm_checkpoint", "avm_validate", "avm_create_pr", "avm_merge", "avm_publish",
+            "avm_checkpoint", "avm_validate", "avm_prepare_review", "avm_create_pr", "avm_merge", "avm_publish",
         ]
         return [{"name": name, "description": f"Bound AVM workflow operation: {name}",
                  "inputSchema": {"type": "object", "additionalProperties": True}} for name in names]
@@ -138,6 +139,7 @@ class AVMMCPServer:
             "avm_checkpoint": lambda: _run_json_command(run_checkpoint, self.project_root,
                                                          message=args.get("message", "MCP checkpoint")),
             "avm_validate": lambda: _run_json_command(run_validate, self.project_root, agent=self.agent),
+            "avm_prepare_review": lambda: _run_json_command(run_prepare_review, self.project_root),
             "avm_create_pr": lambda: _run_json_command(run_create_pr, self.project_root,
                                                         draft=bool(args.get("draft", False))),
             "avm_merge": lambda: _run_json_command(run_merge, self.project_root),
