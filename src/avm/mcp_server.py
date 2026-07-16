@@ -112,11 +112,25 @@ class AVMMCPServer:
 
     def list_tools(self) -> list[dict[str, Any]]:
         names = [
-            "avm_status", "avm_preflight", "avm_start", "avm_approve",
-            "avm_checkpoint", "avm_validate", "avm_prepare_review", "avm_create_pr", "avm_merge", "avm_publish",
+            "avm_status",
+            "avm_preflight",
+            "avm_start",
+            "avm_approve",
+            "avm_checkpoint",
+            "avm_validate",
+            "avm_prepare_review",
+            "avm_create_pr",
+            "avm_merge",
+            "avm_publish",
         ]
-        return [{"name": name, "description": f"Bound AVM workflow operation: {name}",
-                 "inputSchema": {"type": "object", "additionalProperties": True}} for name in names]
+        return [
+            {
+                "name": name,
+                "description": f"Bound AVM workflow operation: {name}",
+                "inputSchema": {"type": "object", "additionalProperties": True},
+            }
+            for name in names
+        ]
 
     def call_tool(self, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         args = dict(args or {})
@@ -127,22 +141,33 @@ class AVMMCPServer:
         self.call_ids.add(call_id)
         handlers: dict[str, Callable[..., Any]] = {
             "avm_status": lambda: _get_status(self.project_root),
-            "avm_preflight": lambda: _run_json_command(run_preflight, self.project_root, agent=self.agent,
-                                                        task=args.get("task", ""),
-                                                        changed_files=args.get("changed_files")),
-            "avm_start": lambda: _run_json_command(run_start, self.project_root, version=args.get("version"),
-                                                    agent=self.agent),
-            "avm_approve": lambda: _run_json_command(run_approve, self.project_root,
-                                                      approver=f"machine:{self.client_id}",
-                                                      notes=args.get("notes", "machine-approved via MCP"),
-                                                      approval_source="machine", policy_version=POLICY_VERSION,
-                                                      call_id=call_id),
-            "avm_checkpoint": lambda: _run_json_command(run_checkpoint, self.project_root,
-                                                         message=args.get("message", "MCP checkpoint")),
+            "avm_preflight": lambda: _run_json_command(
+                run_preflight,
+                self.project_root,
+                agent=self.agent,
+                task=args.get("task", ""),
+                changed_files=args.get("changed_files"),
+            ),
+            "avm_start": lambda: _run_json_command(
+                run_start, self.project_root, version=args.get("version"), agent=self.agent
+            ),
+            "avm_approve": lambda: _run_json_command(
+                run_approve,
+                self.project_root,
+                approver=f"machine:{self.client_id}",
+                notes=args.get("notes", "machine-approved via MCP"),
+                approval_source="machine",
+                policy_version=POLICY_VERSION,
+                call_id=call_id,
+            ),
+            "avm_checkpoint": lambda: _run_json_command(
+                run_checkpoint, self.project_root, message=args.get("message", "MCP checkpoint")
+            ),
             "avm_validate": lambda: _run_json_command(run_validate, self.project_root, agent=self.agent),
             "avm_prepare_review": lambda: _run_json_command(run_prepare_review, self.project_root),
-            "avm_create_pr": lambda: _run_json_command(run_create_pr, self.project_root,
-                                                        draft=bool(args.get("draft", False))),
+            "avm_create_pr": lambda: _run_json_command(
+                run_create_pr, self.project_root, draft=bool(args.get("draft", False))
+            ),
             "avm_merge": lambda: _run_json_command(run_merge, self.project_root),
             "avm_publish": lambda: _run_json_command(run_publish, self.project_root),
         }
@@ -153,8 +178,12 @@ class AVMMCPServer:
             if not isinstance(result, dict):
                 result = {"result": result}
             result.setdefault("success", True)
-            result["binding"] = {"project_root": str(self.project_root), "git_remote": self._git_remote,
-                                  "default_branch": self._default_branch, "agent": self.agent}
+            result["binding"] = {
+                "project_root": str(self.project_root),
+                "git_remote": self._git_remote,
+                "default_branch": self._default_branch,
+                "agent": self.agent,
+            }
             result["audit"] = self._audit(call_id, name, bool(result.get("success", True)))
             return result
         except Exception as exc:
@@ -167,11 +196,15 @@ class AVMMCPServer:
         if method == "notifications/initialized":
             return None
         if method == "initialize":
-            return {"jsonrpc": "2.0", "id": request_id, "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": "avm-mcp", "version": "1.0.0"},
-            }}
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "avm-mcp", "version": "1.0.0"},
+                },
+            }
         if method == "tools/list":
             return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": self.list_tools()}}
         if method == "tools/call":

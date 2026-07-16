@@ -56,8 +56,17 @@ def test_all_workflow_handlers_are_structured(tmp_path: Path, monkeypatch: pytes
     server = AVMMCPServer(tmp_path, agent="workbuddy", client_id="workbuddy")
     monkeypatch.setattr("avm.mcp_server._run_json_command", lambda *args, **kwargs: {"success": True})
     for index, name in enumerate(
-        ["avm_preflight", "avm_start", "avm_approve", "avm_checkpoint", "avm_validate",
-         "avm_prepare_review", "avm_create_pr", "avm_merge", "avm_publish"],
+        [
+            "avm_preflight",
+            "avm_start",
+            "avm_approve",
+            "avm_checkpoint",
+            "avm_validate",
+            "avm_prepare_review",
+            "avm_create_pr",
+            "avm_merge",
+            "avm_publish",
+        ],
         1,
     ):
         result = server.call_tool(name, {"call_id": f"handler-{index}"})
