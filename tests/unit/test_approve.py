@@ -156,6 +156,7 @@ class TestRunApprove:
     def test_approve_final_with_json_output(self, mock_git_cls, project_dir, capsys):
         """测试最终审批 JSON 输出"""
         _create_lock(project_dir, "WAIT_FINAL_APPROVAL")
+        mock_git_cls.return_value.get_head_sha.return_value = "approved-head"
 
         result = run_approve(project_dir, approver="test-user", json_output=True)
         assert result is True
@@ -188,6 +189,7 @@ class TestRunApprove:
     def test_approve_final_transition_to_pr_ready(self, mock_git_cls, project_dir):
         """测试最终审批后状态转换为 PR_READY"""
         _create_lock(project_dir, "WAIT_FINAL_APPROVAL")
+        mock_git_cls.return_value.get_head_sha.return_value = "approved-head"
 
         result = run_approve(project_dir, approver="test-user")
         assert result is True
@@ -198,6 +200,7 @@ class TestRunApprove:
         sm = StateMachine(project_dir)
         sm.load()
         assert sm.current_status == TaskStatus.PR_READY
+        assert sm.task_lock.approved_head_sha == "approved-head"
 
     def test_approve_wrong_state_not_approval(self, project_dir):
         """测试非审批状态"""

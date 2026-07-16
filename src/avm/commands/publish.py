@@ -70,7 +70,12 @@ def run_publish(project_path: Path, json_output: bool = False) -> bool:
     try:
         from .approve import _compute_content_hash
 
-        actual_content_hash = _compute_content_hash(project_path, task_lock, git=git)
+        # 最终审批签署任务分支 head；分支即使在 merge 后删除，也从锁中
+        # 读取审批时冻结的同一 SHA，绝不以合并后的 HEAD 替代。
+        approved_head = task_lock.approved_head_sha
+        if not approved_head:
+            raise RuntimeError("无法解析已审批的任务分支 SHA")
+        actual_content_hash = _compute_content_hash(project_path, task_lock, git=git, head_sha=approved_head)
         ApprovalManager(project_path).validate_approval(
             task_lock,
             actual_content_hash=actual_content_hash,

@@ -187,6 +187,7 @@ class TaskLock(BaseModel):
     expected_files: list[str] = Field(default_factory=list)
     remote_lock_ref: str | None = "refs/heads/avm/system-lock"
     approval_id: str | None = None
+    approved_head_sha: str = ""  # FINAL_RELEASE 审批所绑定的任务分支提交
     merge_sha: str = ""  # merge commit SHA
     manifest_hash: str = ""  # release manifest 内容哈希
     pr_number: int | None = None  # PR 编号
