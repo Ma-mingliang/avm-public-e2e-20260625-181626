@@ -203,7 +203,8 @@ def run_approve(
         try:
             task_lock.approved_head_sha = approved_head_sha
             sm.save()
-            sm.transition(next_status, {"approval_id": record.approval_id})
+            if current != TaskStatus.PR_READY:
+                sm.transition(next_status, {"approval_id": record.approval_id})
             result["status"] = next_status.value
             result["steps"].append(
                 {
