@@ -26,6 +26,9 @@ def run_approve(
     approver: str | None = None,
     notes: str = "",
     json_output: bool = False,
+    approval_source: str = "human",
+    policy_version: str = "",
+    call_id: str = "",
 ) -> bool:
     """用户审批
 
@@ -57,6 +60,8 @@ def run_approve(
         TaskStatus.WAIT_START_APPROVAL,
         TaskStatus.WAIT_FINAL_APPROVAL,
         TaskStatus.REVIEW_MATERIAL_READY,
+        TaskStatus.DRAFT_PR,
+        TaskStatus.PR_READY,
     ):
         result["steps"].append(
             {
@@ -162,6 +167,10 @@ def run_approve(
             approver=approver,
             notes=notes,
             content_hash=content_hash,
+            approval_source=approval_source,
+            policy_version=policy_version,
+            call_id=call_id,
+            approved_head_sha=approved_head_sha,
         )
         result["approval_id"] = record.approval_id
         result["steps"].append(
@@ -194,7 +203,8 @@ def run_approve(
         try:
             task_lock.approved_head_sha = approved_head_sha
             sm.save()
-            sm.transition(next_status, {"approval_id": record.approval_id})
+            if current != TaskStatus.PR_READY:
+                sm.transition(next_status, {"approval_id": record.approval_id})
             result["status"] = next_status.value
             result["steps"].append(
                 {

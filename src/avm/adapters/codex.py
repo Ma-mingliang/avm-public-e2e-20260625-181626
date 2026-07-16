@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from typing import Any
 
@@ -22,6 +23,8 @@ class CodexAdapter(AgentAdapter):
 
     def is_available(self) -> bool:
         """检查 Codex 是否可用"""
+        if os.environ.get("AVM_MCP_AGENT_CONTEXT") == "codex-desktop":
+            return True
         try:
             result = subprocess.run(
                 ["codex", "--version"],
@@ -35,6 +38,8 @@ class CodexAdapter(AgentAdapter):
 
     def get_version(self) -> str:
         """获取 Codex 版本"""
+        if os.environ.get("AVM_MCP_AGENT_CONTEXT") == "codex-desktop":
+            return "codex-desktop-mcp"
         try:
             result = subprocess.run(
                 ["codex", "--version"],

@@ -9,6 +9,7 @@ from .base import AgentAdapter
 from .claude_code import ClaudeCodeAdapter
 from .codex import CodexAdapter
 from .hermes import HermesAdapter
+from .workbuddy import WorkBuddyAdapter
 
 # 适配器注册表
 _ADAPTERS: dict[AgentType, type[AgentAdapter]] = {
@@ -31,7 +32,7 @@ def get_adapter(agent_type: AgentType, project_root: Path) -> AgentAdapter:
     Raises:
         ValueError: 如果 Agent 类型不支持
     """
-    adapter_class = _ADAPTERS.get(agent_type)
+    adapter_class = WorkBuddyAdapter if agent_type == AgentType.WORKBUDDY else _ADAPTERS.get(agent_type)
     if adapter_class is None:
         raise ValueError(f"不支持的 Agent 类型: {agent_type}")
     return adapter_class(project_root)

@@ -81,6 +81,10 @@ class ApprovalManager:
         scope_files: list[str] | None = None,
         notes: str = "",
         content_hash: str = "",
+        approval_source: str = "human",
+        policy_version: str = "",
+        call_id: str = "",
+        approved_head_sha: str = "",
     ) -> ApprovalRecord:
         """创建审批记录
 
@@ -109,6 +113,10 @@ class ApprovalManager:
             "created_at": now.isoformat(),
             "expires_at": expires_at.isoformat(),
             "content_hash": content_hash,
+            "approval_source": approval_source,
+            "policy_version": policy_version,
+            "call_id": call_id,
+            "approved_head_sha": approved_head_sha,
         }
 
         # 计算 HMAC 签名
@@ -128,6 +136,11 @@ class ApprovalManager:
             created_at=now.isoformat(),
             expires_at=expires_at.isoformat(),
             content_hash=content_hash,
+            approval_source=approval_source,
+            agent=content["agent"],
+            policy_version=policy_version,
+            call_id=call_id,
+            approved_head_sha=approved_head_sha,
         )
 
         # 持久化
@@ -198,6 +211,10 @@ class ApprovalManager:
             "created_at": record.created_at,
             "expires_at": record.expires_at,
             "content_hash": record.content_hash,
+            "approval_source": record.approval_source,
+            "policy_version": record.policy_version,
+            "call_id": record.call_id,
+            "approved_head_sha": record.approved_head_sha,
         }
         content_str = json.dumps(content, sort_keys=True, ensure_ascii=False)
 
