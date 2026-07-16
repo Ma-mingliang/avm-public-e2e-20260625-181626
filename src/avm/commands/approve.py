@@ -105,6 +105,13 @@ def run_approve(
             )
             _output(result, json_output)
             return False
+        # transition() 会用 CAS 写回结果替换状态机中的锁对象；后续最终
+        # 审批必须操作该最新对象，否则 approved_head_sha 不会被持久化。
+        task_lock = sm.task_lock
+        if task_lock is None:
+            result["steps"].append({"step": "check_lock", "status": "error", "message": "状态转换后未找到任务锁"})
+            _output(result, json_output)
+            return False
         approval_type = ApprovalType.FINAL_RELEASE
         next_status = TaskStatus.PR_READY
     else:
