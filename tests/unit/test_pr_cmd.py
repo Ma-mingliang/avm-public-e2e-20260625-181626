@@ -72,7 +72,33 @@ class TestRunCreatePr:
     """create-pr 命令测试"""
 
     @patch("avm.commands.pr.GitHubClient")
-    def test_create_pr_success(self, mock_gh_cls, project_dir):
+    @patch("avm.commands.pr.GitOps")
+    def test_create_pr_pushes_task_branch_before_calling_github(self, mock_git_cls, mock_gh_cls, project_dir):
+        """GitHub 只能从已推送的任务分支创建 PR。"""
+        _create_lock(project_dir, "PR_READY", branch="agent/v1")
+        events = []
+
+        mock_git = MagicMock()
+        mock_git.push.side_effect = lambda *_args: events.append("push") or True
+        mock_git_cls.return_value = mock_git
+
+        mock_gh = MagicMock()
+        mock_gh.create_pull_request.side_effect = lambda **_kwargs: (
+            events.append("create_pr")
+            or {
+                "html_url": "https://github.com/test/pr/1",
+                "number": 1,
+            }
+        )
+        mock_gh_cls.return_value = mock_gh
+
+        assert run_create_pr(project_dir) is True
+        mock_git.push.assert_called_once_with("origin", "agent/v1")
+        assert events == ["push", "create_pr"]
+
+    @patch("avm.commands.pr.GitHubClient")
+    @patch("avm.commands.pr.GitOps")
+    def test_create_pr_success(self, mock_git_cls, mock_gh_cls, project_dir):
         """测试创建 PR 成功"""
         _create_lock(project_dir, "VALIDATING")
 
@@ -82,6 +108,7 @@ class TestRunCreatePr:
             "number": 1,
         }
         mock_gh_cls.return_value = mock_gh
+        mock_git_cls.return_value.push.return_value = True
 
         result = run_create_pr(project_dir)
         assert result is True
@@ -115,7 +142,8 @@ class TestRunCreatePr:
         assert result is False
 
     @patch("avm.commands.pr.GitHubClient")
-    def test_create_pr_json(self, mock_gh_cls, project_dir, capsys):
+    @patch("avm.commands.pr.GitOps")
+    def test_create_pr_json(self, mock_git_cls, mock_gh_cls, project_dir, capsys):
         """测试 JSON 输出"""
         _create_lock(project_dir, "VALIDATING")
 
@@ -125,6 +153,7 @@ class TestRunCreatePr:
             "number": 1,
         }
         mock_gh_cls.return_value = mock_gh
+        mock_git_cls.return_value.push.return_value = True
 
         result = run_create_pr(project_dir, json_output=True)
         assert result is True
@@ -134,7 +163,8 @@ class TestRunCreatePr:
         assert data["success"] is True
 
     @patch("avm.commands.pr.GitHubClient")
-    def test_create_pr_draft(self, mock_gh_cls, project_dir):
+    @patch("avm.commands.pr.GitOps")
+    def test_create_pr_draft(self, mock_git_cls, mock_gh_cls, project_dir):
         """测试创建草稿 PR"""
         _create_lock(project_dir, "VALIDATING")
 
@@ -144,6 +174,7 @@ class TestRunCreatePr:
             "number": 1,
         }
         mock_gh_cls.return_value = mock_gh
+        mock_git_cls.return_value.push.return_value = True
 
         result = run_create_pr(project_dir, draft=True)
         assert result is True
@@ -242,7 +273,8 @@ class TestRunCreatePrReady:
     """create-pr from PR_READY state"""
 
     @patch("avm.commands.pr.GitHubClient")
-    def test_create_pr_accepts_pr_ready(self, mock_gh_cls, project_dir):
+    @patch("avm.commands.pr.GitOps")
+    def test_create_pr_accepts_pr_ready(self, mock_git_cls, mock_gh_cls, project_dir):
         """test: PR_READY state accepted by create-pr (status remains PR_READY, no regression)"""
         _create_lock(project_dir, "PR_READY")
 
@@ -252,6 +284,7 @@ class TestRunCreatePrReady:
             "number": 1,
         }
         mock_gh_cls.return_value = mock_gh
+        mock_git_cls.return_value.push.return_value = True
 
         result = run_create_pr(project_dir)
         assert result is True

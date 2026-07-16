@@ -76,7 +76,27 @@ def run_create_pr(
     branch = task_lock.branch
     version = task_lock.version
 
-    # 4. 创建 PR
+    # 4. 先将任务分支推送到远端；GitHub 不能为仅存在于本地的分支创建 PR。
+    git = GitOps(project_path)
+    if not git.push("origin", branch):
+        result["steps"].append(
+            {
+                "step": "push_branch",
+                "status": "error",
+                "message": f"推送任务分支失败: {branch}",
+            }
+        )
+        _output(result, json_output)
+        return False
+    result["steps"].append(
+        {
+            "step": "push_branch",
+            "status": "ok",
+            "message": f"任务分支已推送: {branch}",
+        }
+    )
+
+    # 5. 创建 PR
     try:
         client = GitHubClient(project_root=project_path)
         pr = client.create_pull_request(
@@ -106,7 +126,7 @@ def run_create_pr(
         _output(result, json_output)
         return False
 
-    # 5. 状态转换
+    # 6. 状态转换
     try:
         if current in (TaskStatus.VALIDATING, TaskStatus.REVIEW_MATERIAL_READY):
             sm.transition(TaskStatus.DRAFT_PR)
